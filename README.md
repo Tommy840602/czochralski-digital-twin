@@ -1,6 +1,6 @@
-# 長晶爐數位孿生 — 基礎設施
+# 長晶爐數位孿生
 
-Czochralski Crystal Growth Furnace Digital Twin — Infrastructure Layer
+Czochralski Crystal Growth Furnace Digital Twin 
 
 ## 目錄結構
 
