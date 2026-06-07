@@ -1,0 +1,60 @@
+jobmanager:
+  rpc:
+    address: flink-jobmanager
+    port: 6123
+  bind-host: 0.0.0.0
+  memory:
+    process:
+      size: 1600m
+
+taskmanager:
+  bind-host: 0.0.0.0
+  host: flink-taskmanager
+  memory:
+    process:
+      size: 2048m
+  numberOfTaskSlots: 4
+
+parallelism:
+  default: 2
+
+state:
+  backend:
+    type: hashmap
+  checkpoints:
+    dir: file:///opt/flink/checkpoints
+
+execution:
+  checkpointing:
+    interval: 30000
+    mode: EXACTLY_ONCE
+    timeout: 60000
+    min-pause: 5000
+    max-concurrent-checkpoints: 1
+
+restart-strategy:
+  type: fixed-delay
+  fixed-delay:
+    attempts: 5
+    delay: 10s
+
+rest:
+  port: 8081
+  bind-address: 0.0.0.0
+
+web:
+  submit:
+    enable: true
+
+metrics:
+  reporters: prom
+  reporter:
+    prom:
+      factory:
+        class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+      port: 9249
+
+env:
+  java:
+    opts:
+      all: "-XX:+UseG1GC --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED"

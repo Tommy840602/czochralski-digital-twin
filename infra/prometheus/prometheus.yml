@@ -1,0 +1,39 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'spring-boot-services'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets:
+          - 'host.docker.internal:8090'
+          - 'host.docker.internal:8091'
+          - 'host.docker.internal:8092'
+          - 'host.docker.internal:8093'
+          - 'host.docker.internal:8085'
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: 'host.docker.internal:(\d+)'
+        target_label: instance
+        replacement: 'port-$1'
+
+  - job_name: 'flink'
+    static_configs:
+      - targets: ['twin-flink-jobmanager:9249']
+
+  - job_name: 'kafka'
+    static_configs:
+      - targets: ['twin-kafka-exporter:9308']
+
+  - job_name: 'postgresql'
+    static_configs:
+      - targets: ['twin-postgres-exporter:9187']
+
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['twin-redis-exporter:9121']

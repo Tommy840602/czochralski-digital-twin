@@ -1,0 +1,32 @@
+server:
+  port: 8093
+
+spring:
+  application:
+    name: twin-state-service
+  config:
+    import: optional:configserver:http://localhost:8888
+  data:
+    redis:
+      host: localhost
+      port: 6379
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: twin-state-group
+      auto-offset-reset: latest
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+
+logging:
+  level:
+    com.twin: DEBUG

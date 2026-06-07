@@ -1,0 +1,12 @@
+server:
+  port: 8093
+
+spring:
+  data:
+    redis:
+      host: localhost
+      port: 6379
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: twin-state-group

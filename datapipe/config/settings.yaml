@@ -1,0 +1,15 @@
+mqtt:
+  host: localhost
+  port: 1883
+  keepalive: 60
+  qos: 1
+  topics:
+    furnace: "furnace/{furnace_id}"
+    alarm:   "furnace/alarm"
+
+simulator:
+  interval_seconds: 10
+  csv_encoding: utf-8
+
+logging:
+  level: INFO

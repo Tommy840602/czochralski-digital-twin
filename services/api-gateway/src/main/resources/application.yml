@@ -1,0 +1,65 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      routes:
+        - id: furnace-service
+          uri: lb://furnace-service
+          predicates:
+            - Path=/api/furnace/**
+          filters:
+            - StripPrefix=1
+
+        - id: alarm-service
+          uri: lb://alarm-service
+          predicates:
+            - Path=/api/alarm/**
+          filters:
+            - StripPrefix=1
+
+        - id: twin-state-service
+          uri: lb://twin-state-service
+          predicates:
+            - Path=/api/twin/**
+          filters:
+            - StripPrefix=1
+
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins:
+              - "http://localhost:5173"
+              - "http://localhost:3001"
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+            allowedHeaders: "*"
+            allowCredentials: true
+
+      default-filters:
+        - name: CircuitBreaker
+          args:
+            name: defaultCB
+            fallbackUri: forward:/fallback
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,gateway
+
+logging:
+  level:
+    org.springframework.cloud.gateway: DEBUG
