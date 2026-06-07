@@ -40,8 +40,8 @@ services/
   furnace-service/    port 8091  TimescaleDB + WebSocket
   alarm-service/      port 8092  MongoDB + Slack
   twin-state-service/ port 8093  Redis SSE
-frontend/             React 18 + Three.js r165 (Part 6)
-infra/                Docker Compose 17 個服務 (Part 8 ✅完成)
+frontend/             React 18 + Three.js 
+infra/                Docker Compose 17 個服務 
 ```
 
 ## 服務啟動順序
