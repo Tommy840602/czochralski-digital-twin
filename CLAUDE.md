@@ -4,7 +4,7 @@
 Event-Driven 大數據數位孿生：兩台長晶爐(C1/C2)即時監控。
 OPC-UA/MQTT 採集 → Kafka → Flink CEP → 多儲存層 → Spring Boot API → Three.js 3D 視覺化。
 
-## 關鍵規則（每次都要遵守）
+## 關鍵規則
 
 - **全專案統一 Java 17（Spring Boot 25 runtime，Flink 2.2 預設 Java 17）**
 - **前端只用 .js / .jsx，禁止 .ts / .tsx**
