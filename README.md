@@ -112,6 +112,5 @@ docker exec -it twin-mongodb \
 | alarm-events  | 1         | 告警事件 → Slack          | AlarmService      |
 
 ## Partition Key
-所有 Topic 均以 `INGOT_NO`（如 C225C34E / C226654E）作為 Partition Key，
-確保同一爐子的數據按序處理。
+所有 Topic 均以 `INGOT_NO`作為 Partition Key，確保同一爐子的數據按序處理。
 
