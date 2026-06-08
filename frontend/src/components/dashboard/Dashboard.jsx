@@ -28,6 +28,7 @@ export default function Dashboard() {
   const [wsConnected, setWsConnected]   = useState(false);
 
   const [collapsed, setCollapsed]       = useState({ C1: false, C2: false });
+  const [darkMode, setDarkMode]           = useState(true);
   const [furnaceData, setFurnaceData]   = useState({ C1: initData(), C2: initData() });
   const [history, setHistory]           = useState({ C1: { diam:[], temp:[] }, C2: { diam:[], temp:[] } });
   const [logs, setLogs]                 = useState({ C1: [], C2: [] });
@@ -88,7 +89,7 @@ export default function Dashboard() {
     setCollapsed(prev => ({ ...prev, [id]: !prev[id] }));
 
   return (
-    <div style={styles.root}>
+    <div style={{ ...styles.root, background: darkMode ? '#0a0c10' : '#f0f2f5', color: darkMode ? '#e8edf5' : '#1a1e24' }}>
       <Header wsConnected={wsConnected} totalMsg={totalMsg} />
       <div style={styles.workspace}>
         {FURNACES.map(id => (
@@ -199,20 +200,35 @@ function KpiGrid({ data, isNg }) {
 }
 
 // ── Sparkline (SVG) ───────────────────────────
-function Sparkline({ data, color, minV, maxV }) {
-  if (!data || data.length < 2) return <svg style={{ width:'100%', height:44 }} />;
-  const W = 200, H = 44, pad = 4;
-  const min = minV ?? Math.min(...data);
-  const max = maxV ?? Math.max(...data);
+function Sparkline({ data, color, minV, maxV, unit }) {
+  if (!data || data.length < 2) return <svg style={{ width:'100%', height:200 }} />;
+  const W = 200, H = 200, padX = 6, padY = 14;
+  const raw = data.filter(v => v != null && !isNaN(v));
+  if (raw.length < 2) return <svg style={{ width:'100%', height:200 }} />;
+  const dataMin = Math.min(...raw);
+  const dataMax = Math.max(...raw);
+  const spread = dataMax - dataMin;
+  const padding = spread < 0.1 ? dataMax * 0.02 : spread * 0.3;
+  const min = minV ?? (dataMin - padding);
+  const max = maxV ?? (dataMax + padding);
   const range = max - min || 1;
-  const pts = data.map((v, i) => {
-    const x = (i / (data.length - 1)) * W;
-    const y = H - pad - ((v - min) / range) * (H - pad * 2);
+  const pts = raw.map((v, i) => {
+    const x = padX + (i / (raw.length - 1)) * (W - padX * 2);
+    const y = padY + (1 - (v - min) / range) * (H - padY * 2);
     return `${x},${y}`;
   }).join(' ');
+  const lastVal = raw[raw.length - 1];
+  const lastX = W - padX;
+  const lastY = padY + (1 - (lastVal - min) / range) * (H - padY * 2);
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width:'100%', height:44, display:'block' }}>
-      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" />
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width:'100%', height:200, display:'block' }}>
+      <line x1={padX} y1={padY} x2={padX} y2={H-padY} stroke="rgba(255,255,255,0.08)" strokeWidth="0.5"/>
+      <line x1={padX} y1={H-padY} x2={W-padX} y2={H-padY} stroke="rgba(255,255,255,0.08)" strokeWidth="0.5"/>
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round"/>
+      <circle cx={lastX} cy={lastY} r="2.5" fill={color}/>
+      <text x={lastX-2} y={lastY-5} fill={color} fontSize="8" textAnchor="end">
+        {parseFloat(lastVal).toFixed(1)}{unit||''}
+      </text>
     </svg>
   );
 }
@@ -222,11 +238,11 @@ function SparklineRow({ history, isNg }) {
     <div style={styles.sparklineRow}>
       <div style={styles.sparklineBox}>
         <div style={styles.sparklineLabel}>Diameter 趨勢</div>
-        <Sparkline data={history.diam} color={isNg ? '#f04a4a' : '#40c88c'} minV={0} maxV={200} />
+        <Sparkline data={history.diam} color={isNg ? '#f04a4a' : '#40c88c'} unit="mm" />
       </div>
       <div style={styles.sparklineBox}>
         <div style={styles.sparklineLabel}>Heater Temp 趨勢</div>
-        <Sparkline data={history.temp} color="#f0a840" minV={1200} maxV={1450} />
+        <Sparkline data={history.temp} color="#f0a840" unit="°C" />
       </div>
     </div>
   );
@@ -280,7 +296,7 @@ function AlarmPanel({ alarms }) {
 }
 
 // ── Header ────────────────────────────────────
-function Header({ wsConnected }) {
+function Header({ wsConnected, darkMode, onToggleDark }) {
   return (
     <div style={styles.header}>
       <div style={{ display:'flex', alignItems:'center', gap:12 }}>
@@ -290,9 +306,21 @@ function Header({ wsConnected }) {
           <div style={styles.headerSub}>長晶爐即時監控系統 v1.0</div>
         </div>
       </div>
-      <div style={styles.wsStatus}>
-        <div style={{ ...styles.wsDot, background: wsConnected ? '#40c88c' : '#f04a4a' }} />
-        <span>{wsConnected ? 'WS 已連線' : 'WS 已斷線'}</span>
+      <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+        <button onClick={onToggleDark} style={{
+          padding:'5px 12px', borderRadius:6,
+          border:'1px solid rgba(255,255,255,0.15)',
+          background:'transparent', cursor:'pointer',
+          fontFamily:'IBM Plex Mono', fontSize:11,
+          color:'rgba(232,237,245,0.6)',
+          transition:'all .15s',
+        }}>
+          {darkMode ? '☀ 日光' : '🌙 深夜'}
+        </button>
+        <div style={styles.wsStatus}>
+          <div style={{ ...styles.wsDot, background: wsConnected ? '#40c88c' : '#f04a4a' }} />
+          <span>{wsConnected ? 'WS 已連線' : 'WS 已斷線'}</span>
+        </div>
       </div>
     </div>
   );
@@ -334,7 +362,7 @@ const styles = {
   wsStatus: { display:'flex', alignItems:'center', gap:6, fontFamily:'IBM Plex Mono', fontSize:11, color:'rgba(232,237,245,0.5)' },
   wsDot: { width:7, height:7, borderRadius:'50%' },
   workspace: { padding:16, display:'flex', flexDirection:'column', gap:12, flex:1 },
-  card: { background:'#0f1218', border:'1px solid rgba(255,255,255,0.07)', borderRadius:10, overflow:'hidden', transition:'border-color .2s, box-shadow .2s' },
+  card: { background:'var(--card-bg, #0f1218)', border:'1px solid rgba(255,255,255,0.07)', borderRadius:10, overflow:'hidden', transition:'all .2s' },
   cardOk: { borderColor:'rgba(64,200,140,0.2)', boxShadow:'0 0 20px rgba(64,200,140,0.08)' },
   cardNg: { borderColor:'rgba(240,74,74,0.25)', boxShadow:'0 0 20px rgba(240,74,74,0.12)' },
   cardHeader: { display:'flex', alignItems:'center', gap:10, padding:'10px 14px', cursor:'pointer', background:'#161b24', borderBottom:'1px solid rgba(255,255,255,0.07)' },
@@ -357,7 +385,7 @@ const styles = {
   kpiDelta: { fontFamily:'IBM Plex Mono', fontSize:10, marginTop:4, color:'rgba(232,237,245,0.3)' },
   kpiBar: { position:'absolute', bottom:0, left:0, height:2, transition:'width .4s ease', opacity:0.7 },
   sparklineRow: { display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:12 },
-  sparklineBox: { background:'#161b24', border:'1px solid rgba(255,255,255,0.07)', borderRadius:7, padding:'10px 12px' },
+  sparklineBox: { background:'#161b24', border:'1px solid rgba(255,255,255,0.07)', borderRadius:7, padding:'14px 16px', minHeight:240 },
   sparklineLabel: { fontFamily:'IBM Plex Mono', fontSize:10, color:'rgba(232,237,245,0.35)', marginBottom:6, textTransform:'uppercase' },
   logStrip: { background:'#161b24', border:'1px solid rgba(255,255,255,0.07)', borderRadius:7, padding:'8px 12px', display:'flex', flexDirection:'column', gap:3, maxHeight:88, overflowY:'auto' },
   logLine: { display:'flex', gap:8, fontFamily:'IBM Plex Mono', fontSize:11 },

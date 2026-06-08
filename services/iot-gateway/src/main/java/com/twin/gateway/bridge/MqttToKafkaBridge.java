@@ -2,24 +2,27 @@ package com.twin.gateway.bridge;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.twin.gateway.model.FurnaceMessage;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.integration.annotation.ServiceActivator;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.messaging.Message;
 import org.springframework.stereotype.Component;
 
-@Slf4j
 @Component
-@RequiredArgsConstructor
 public class MqttToKafkaBridge {
 
+    private static final Logger log = LoggerFactory.getLogger(MqttToKafkaBridge.class);
     private static final String TOPIC_FURNACE_DATA  = "furnace-data";
     private static final String TOPIC_SENSOR_EVENTS = "sensor-events";
     private static final String TOPIC_ALARM_EVENTS  = "alarm-events";
 
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    public MqttToKafkaBridge(KafkaTemplate<String, String> kafkaTemplate) {
+        this.kafkaTemplate = kafkaTemplate;
+    }
 
     @ServiceActivator(inputChannel = "mqttInputChannel")
     public void handleMessage(Message<String> message) {

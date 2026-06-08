@@ -481,3 +481,101 @@ services:
     pid: host
     volumes:
       - /:/host:ro,rslave
+
+  eureka-server:
+    build: ./services/eureka-server
+    container_name: twin-eureka
+    ports:
+      - "8761:8761"
+    networks:
+      - twin-net
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 8761 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  config-server:
+    build: ./services/config-server
+    container_name: twin-config
+    ports:
+      - "8888:8888"
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - twin-net
+
+  iot-gateway:
+    build: ./services/iot-gateway
+    container_name: twin-iot-gateway
+    ports:
+      - "8090:8090"
+    environment:
+      - SPRING_CONFIG_IMPORT=optional:configserver:http://twin-config:8888
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://twin-eureka:8761/eureka/
+      - SPRING_MQTT_BROKER_URL=tcp://twin-mosquitto:1883
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=twin-kafka:9093
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - twin-net
+
+  furnace-service:
+    build: ./services/furnace-service
+    container_name: twin-furnace-service
+    ports:
+      - "8091:8091"
+    environment:
+      - SPRING_CONFIG_IMPORT=optional:configserver:http://twin-config:8888
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://twin-eureka:8761/eureka/
+      - SPRING_DATA_REDIS_HOST=twin-redis
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://twin-timescaledb:5432/furnace_db
+      - SPRING_DATASOURCE_USERNAME=twin
+      - SPRING_DATASOURCE_PASSWORD=twin_secret
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - twin-net
+
+  alarm-service:
+    build: ./services/alarm-service
+    container_name: twin-alarm-service
+    ports:
+      - "8092:8092"
+    environment:
+      - SPRING_CONFIG_IMPORT=optional:configserver:http://twin-config:8888
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://twin-eureka:8761/eureka/
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=twin-kafka:9093
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - twin-net
+
+  api-gateway:
+    build: ./services/api-gateway
+    container_name: twin-api-gateway
+    ports:
+      - "8085:8085"
+    environment:
+      - SPRING_CONFIG_IMPORT=optional:configserver:http://twin-config:8888
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://twin-eureka:8761/eureka/
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - twin-net
+
+  frontend:
+    build: ./frontend
+    container_name: twin-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - api-gateway
+      - furnace-service
+    networks:
+      - twin-net
