@@ -1,0 +1,132 @@
+services:
+  eureka-server:
+    image: tommy840602/czochralski-eureka:latest
+    container_name: twin-eureka
+    restart: always
+    ports:
+      - "8761:8761"
+    networks:
+      - twin-net
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 8761 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  config-server:
+    image: tommy840602/czochralski-config:latest
+    container_name: twin-config
+    restart: always
+    ports:
+      - "8888:8888"
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - twin-net
+
+  iot-gateway:
+    image: tommy840602/czochralski-iot-gateway:latest
+    container_name: twin-iot-gateway
+    restart: always
+    ports:
+      - "8090:8090"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_CONFIG_IMPORT=optional:configserver:http://twin-config:8888
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://twin-eureka:8761/eureka/
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=twin-kafka:9093
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - twin-net
+
+  furnace-service:
+    image: tommy840602/czochralski-furnace:latest
+    container_name: twin-furnace-service
+    restart: always
+    ports:
+      - "8091:8091"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_CONFIG_IMPORT=optional:configserver:http://twin-config:8888
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://twin-eureka:8761/eureka/
+      - SPRING_DATA_REDIS_HOST=twin-redis
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://twin-timescaledb:5432/furnace_db
+      - SPRING_DATASOURCE_USERNAME=twin
+      - SPRING_DATASOURCE_PASSWORD=twin_secret
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - twin-net
+
+  alarm-service:
+    image: tommy840602/czochralski-alarm:latest
+    container_name: twin-alarm-service
+    restart: always
+    ports:
+      - "8092:8092"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_CONFIG_IMPORT=optional:configserver:http://twin-config:8888
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://twin-eureka:8761/eureka/
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=twin-kafka:9093
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - twin-net
+
+  api-gateway:
+    image: tommy840602/czochralski-api-gateway:latest
+    container_name: twin-api-gateway
+    restart: always
+    ports:
+      - "8085:8085"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_CONFIG_IMPORT=optional:configserver:http://twin-config:8888
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://twin-eureka:8761/eureka/
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - twin-net
+
+  frontend:
+    image: tommy840602/czochralski-frontend:latest
+    container_name: twin-frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - api-gateway
+      - furnace-service
+    networks:
+      - twin-net
+
+  datapipe-c1:
+    build: ./datapipe
+    container_name: twin-datapipe-c1
+    restart: always
+    environment:
+      - MQTT_HOST=twin-mosquitto
+    command: ["python", "main.py", "--furnace", "C1", "--csv", "data/C2_growthIdx_1.csv", "--interval", "10"]
+    depends_on:
+      - twin-mosquitto
+    networks:
+      - twin-net
+
+  datapipe-c2:
+    build: ./datapipe
+    container_name: twin-datapipe-c2
+    restart: always
+    environment:
+      - MQTT_HOST=twin-mosquitto
+    command: ["python", "main.py", "--furnace", "C2", "--csv", "data/C2_growthIdx_5.csv", "--interval", "10"]
+    depends_on:
+      - twin-mosquitto
+    networks:
+      - twin-net
