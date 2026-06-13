@@ -107,6 +107,8 @@ jobs:
           context: frontend
           push: true
           tags: tommy840602/czochralski-frontend:latest
+          build-args: |
+            NODE_VERSION=20
 
   # ── Job 3: Deploy to Server ──
   deploy:
