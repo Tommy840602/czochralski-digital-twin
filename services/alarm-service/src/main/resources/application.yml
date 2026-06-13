@@ -5,10 +5,7 @@ spring:
   application:
     name: alarm-service
   config:
-    import: optional:configserver:http://localhost:8888
-  data:
-    mongodb:
-      uri: mongodb://twin:twin_secret@localhost:27017/twin_db?authSource=admin
+    import: "optional:configserver:http://localhost:8888"
   kafka:
     bootstrap-servers: localhost:9092
     consumer:
@@ -16,10 +13,13 @@ spring:
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+  data:
+    mongodb:
+      uri: mongodb://twin:twin_secret@localhost:27017/twin_db?authSource=admin
 
 slack:
   webhook:
-    url: ${SLACK_WEBHOOK_URL:https://hooks.slack.com/services/CHANGE_ME}
+    url: ""
 
 eureka:
   client:
@@ -30,7 +30,12 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus
+        include: health,info
+  health:
+    mongo:
+      enabled: false
+    diskspace:
+      enabled: false
 
 logging:
   level:
