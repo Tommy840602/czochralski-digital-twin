@@ -2,15 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { useTheme } from '../../theme-system.jsx';
 
 /**
- * Dashboard.jsx
+ * Dashboard.jsx - Enhanced with LogStrip
  * 長晶爐即時監控主介面
- * - 接收 App.jsx 傳來的 furnaceData、externalAlarms、wsConnected
- * - 每張爐況卡片可折疊
- * - 保留 Sparkline 趨勢圖表（支持主題色）
- * - 主題系統集成（深色/淺色）
+ * - 保留原本的完整布局（KPI框 + 趨勢圖 + 日誌條）
+ * - 日誌條動態生成（每次收到新數據就添加日誌）
  */
 
 const FURNACES = ['C1', 'C2'];
+const LOGS_LIMIT = 10;
 
 export default function Dashboard({
   furnaceData = {},
@@ -19,6 +18,28 @@ export default function Dashboard({
 }) {
   const { bg, text, border, accent } = useTheme();
   const [collapsed, setCollapsed] = useState({ C1: false, C2: false });
+  const [logs, setLogs] = useState({ C1: [], C2: [] });
+
+  // 當 furnaceData 更新時，添加到日誌
+  useEffect(() => {
+    FURNACES.forEach(id => {
+      if (furnaceData[id]) {
+        const data = furnaceData[id];
+        const logEntry = {
+          event: data.event,
+          mode: data.operationMode,
+          diameter: data.diameter,
+          heaterTemp: data.heaterTemp,
+          grMean: data.grMean,
+          ts: new Date(),
+        };
+        setLogs(prev => ({
+          ...prev,
+          [id]: [logEntry, ...prev[id]].slice(0, LOGS_LIMIT)
+        }));
+      }
+    });
+  }, [furnaceData]);
 
   const toggleCard = (id) => {
     setCollapsed(prev => ({ ...prev, [id]: !prev[id] }));
@@ -48,6 +69,7 @@ export default function Dashboard({
             key={id}
             id={id}
             data={furnaceData[id] || {}}
+            logs={logs[id] || []}
             collapsed={collapsed[id]}
             onToggle={() => toggleCard(id)}
           />
@@ -64,7 +86,7 @@ export default function Dashboard({
 // ==========================================
 // 🔥 炉子卡片
 // ==========================================
-function FurnaceCard({ id, data, collapsed, onToggle }) {
+function FurnaceCard({ id, data, logs, collapsed, onToggle }) {
   const { bg, text, border, accent } = useTheme();
 
   // 关键：字符串比较
@@ -300,6 +322,9 @@ function FurnaceCard({ id, data, collapsed, onToggle }) {
             tempHistory={data._history?.heaterTemp || []}
             isNg={isNg}
           />
+
+          {/* LogStrip 日誌條 */}
+          <LogStrip logs={logs} />
         </div>
       )}
     </div>
@@ -372,18 +397,18 @@ function KpiBox({ label, value, unit, delta, pct, isNg }) {
 }
 
 // ==========================================
-// 📈 Sparkline 趨勢圖
+// 📈 Sparkline 趨勢圖（放大版）
 // ==========================================
 function Sparkline({ data, color, unit = '', textColor = "rgba(128, 128, 128, 0.6)" }) {
   if (!data || data.length < 2) {
-    return <svg style={{ width: '100%', height: 200 }} />;
+    return <svg style={{ width: '100%', height: 280 }} />;
   }
 
-  const W = 200, H = 200, padX = 20, padY = 14;
+  const W = 300, H = 240, padX = 30, padY = 16;
   const raw = data.filter(v => v != null && !isNaN(v));
 
   if (raw.length < 2) {
-    return <svg style={{ width: '100%', height: 200 }} />;
+    return <svg style={{ width: '100%', height: 280 }} />;
   }
 
   const dataMin = Math.min(...raw);
@@ -415,8 +440,8 @@ function Sparkline({ data, color, unit = '', textColor = "rgba(128, 128, 128, 0.
   return (
     <svg
       viewBox={`0 0 ${W} ${H}`}
-      preserveAspectRatio="none"
-      style={{ width: '100%', height: 200, display: 'block' }}
+      preserveAspectRatio="xMidYMid meet"
+      style={{ width: '100%', height: 280, display: 'block' }}
     >
       {/* Y 轴 */}
       <line
@@ -442,17 +467,17 @@ function Sparkline({ data, color, unit = '', textColor = "rgba(128, 128, 128, 0.
 
       {/* Y 轴网格线和标签 */}
       <line x1={padX - 2} y1={yTop} x2={W - 6} y2={yTop} stroke={textColor} strokeWidth="0.5" opacity="0.1" />
-      <text x={padX - 6} y={yTop + 3} fill={textColor} fontSize="7" textAnchor="end">
+      <text x={padX - 6} y={yTop + 3} fill={textColor} fontSize="8" textAnchor="end">
         {maxLabel}
       </text>
 
       <line x1={padX - 2} y1={yMid} x2={W - 6} y2={yMid} stroke={textColor} strokeWidth="0.5" opacity="0.1" />
-      <text x={padX - 6} y={yMid + 3} fill={textColor} fontSize="7" textAnchor="end">
+      <text x={padX - 6} y={yMid + 3} fill={textColor} fontSize="8" textAnchor="end">
         {midLabel}
       </text>
 
       <line x1={padX - 2} y1={yBot} x2={W - 6} y2={yBot} stroke={textColor} strokeWidth="0.5" opacity="0.1" />
-      <text x={padX - 6} y={yBot + 3} fill={textColor} fontSize="7" textAnchor="end">
+      <text x={padX - 6} y={yBot + 3} fill={textColor} fontSize="8" textAnchor="end">
         {minLabel}
       </text>
 
@@ -467,7 +492,6 @@ function Sparkline({ data, color, unit = '', textColor = "rgba(128, 128, 128, 0.
 
       {/* 数据点（最多显示5个，填色圆点） */}
       {pointCoords.map((p, i) => {
-        // 均匀分布显示最多 5 个点
         const step = Math.max(1, Math.floor(pointCoords.length / 5));
         const shouldShow = i % step === 0 || i === pointCoords.length - 1;
         return shouldShow ? (
@@ -487,7 +511,7 @@ function Sparkline({ data, color, unit = '', textColor = "rgba(128, 128, 128, 0.
           x={pointCoords[pointCoords.length - 1].x - 2}
           y={pointCoords[pointCoords.length - 1].y - 6}
           fill={color}
-          fontSize="7"
+          fontSize="8"
           textAnchor="end"
           fontWeight="600"
         >
@@ -513,7 +537,7 @@ function SparklineRow({ diameterHistory, tempHistory, isNg }) {
         border: `1px solid ${border}`,
         borderRadius: 7,
         padding: '14px 16px',
-        minHeight: 240,
+        minHeight: 310,
       }}>
         <div style={{
           fontFamily: "'IBM Plex Mono', sans-serif",
@@ -525,7 +549,6 @@ function SparklineRow({ diameterHistory, tempHistory, isNg }) {
         }}>
           Diameter
         </div>
-        {/* ✅ 傳入 textColor */}
         <Sparkline
           data={diameterHistory}
           color="#4a8cf0"
@@ -539,7 +562,7 @@ function SparklineRow({ diameterHistory, tempHistory, isNg }) {
         border: `1px solid ${border}`,
         borderRadius: 7,
         padding: '14px 16px',
-        minHeight: 240,
+        minHeight: 310,
       }}>
         <div style={{
           fontFamily: "'IBM Plex Mono', sans-serif",
@@ -551,7 +574,6 @@ function SparklineRow({ diameterHistory, tempHistory, isNg }) {
         }}>
           Heater Temp
         </div>
-        {/* ✅ 傳入 textColor */}
         <Sparkline
           data={tempHistory}
           color="#f04a4a"
@@ -559,6 +581,63 @@ function SparklineRow({ diameterHistory, tempHistory, isNg }) {
           textColor={text.muted}
         />
       </div>
+    </div>
+  );
+}
+
+// ==========================================
+// 📋 日誌條
+// ==========================================
+function LogStrip({ logs }) {
+  const { bg, text, border } = useTheme();
+
+  return (
+    <div style={{
+      background: bg.tertiary,
+      border: `1px solid ${border}`,
+      borderRadius: 7,
+      padding: '8px 12px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 3,
+      maxHeight: 88,
+      overflowY: 'auto',
+      marginTop: 8,
+    }}>
+      {logs.length === 0 ? (
+        <span style={{
+          fontFamily: "'IBM Plex Mono', sans-serif",
+          fontSize: 11,
+          color: text.muted,
+          padding: 8,
+        }}>
+          等待數據...
+        </span>
+      ) : (
+        logs.map((l, i) => (
+          <div
+            key={i}
+            style={{
+              display: 'flex',
+              gap: 8,
+              fontFamily: "'IBM Plex Mono', sans-serif",
+              fontSize: 11,
+              color: l.event !== '1' || l.event === 1 ? '#808080' : '#808080',
+            }}
+          >
+            <span style={{
+              color: text.muted,
+              minWidth: 60,
+              flexShrink: 0,
+            }}>
+              {l.ts?.toTimeString?.().slice(0, 8) || '—'}
+            </span>
+            <span>
+              [{l.mode || '—'}] Ø{parseFloat(l.diameter || 0).toFixed(2)}mm {parseFloat(l.heaterTemp || 0).toFixed(0)}°C GR:{parseFloat(l.grMean || 0).toFixed(3)}
+            </span>
+          </div>
+        ))
+      )}
     </div>
   );
 }
