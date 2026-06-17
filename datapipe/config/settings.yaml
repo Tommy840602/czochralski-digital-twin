@@ -1,15 +1,55 @@
+# ============================================================
+#  長晶爐數位孿生 — Datapipe 設定檔（彈性多爐版）
+# ============================================================
+
 mqtt:
   host: localhost
   port: 1883
   keepalive: 60
   qos: 1
   topics:
-    furnace: "furnace/{furnace_id}"
+    furnace: "furnace/{furnace_id}"    # 動態替換 furnace_id
     alarm:   "furnace/alarm"
 
+# ── 爐子設定 ──────────────────────────────────────────────
+# furnaces 清單控制 datapipe 知道哪些爐子存在。
+# 空清單 [] 表示「動態模式」：只靠 --furnace CLI 參數決定。
+# 有值時：可用於批次啟動（make sim-all 等指令）。
+#
+# 新增爐子：
+#   1. 在此加一筆（選用）
+#   2. 執行 import_csv.py --file 新爐CSV
+#   3. python main.py --furnace 新爐ID --csv data/新爐_all.csv
+furnaces:
+  - id: D1
+    display_name: "長晶爐 D1"
+    csv: "data/D1_all.csv"
+  - id: D3
+    display_name: "長晶爐 D3"
+    csv: "data/D3_all.csv"
+  - id: DB
+    display_name: "長晶爐 DB"
+    csv: "data/DB_all.csv"
+  - id: F7
+    display_name: "長晶爐 F7"
+    csv: "data/F7_all.csv"
+  - id: FA
+    display_name: "長晶爐 FA"
+    csv: "data/FA_all.csv"
+  # 新增爐子範例（取消註解即啟用）：
+  # - id: FB
+  #   display_name: "長晶爐 FB"
+  #   csv: "data/FB_all.csv"
+
 simulator:
-  interval_seconds: 10
-  csv_encoding: utf-8
+  interval_seconds: 10      # 每筆資料間隔秒數（模擬即時）
+  csv_encoding: utf-8-sig   # BOM 安全
+  speed: 1                  # 倍速（1x=正常, 10x=加速）
+
+# ── 資料庫（供 import_csv.py 使用）──────────────────────────
+database:
+  url: "postgresql://twin:twin_secret@localhost:5433/furnace_db"
+  batch_size: 5000
 
 logging:
   level: INFO

@@ -1,17 +1,7 @@
 apiVersion: 1
-
 datasources:
-  - name: Prometheus
-    type: prometheus
-    access: proxy
-    url: http://prometheus:9090
-    isDefault: true
-    editable: true
-    jsonData:
-      httpMethod: POST
-      exemplarTraceIdDestinations: []
-
   - name: TimescaleDB
+    uid: DS_TIMESCALEDB
     type: postgres
     url: timescaledb:5432
     database: furnace_db
@@ -25,9 +15,21 @@ datasources:
       connMaxLifetime: 14400
       postgresVersion: 1600
       timescaledb: true
+    isDefault: true
     editable: true
 
+  - name: Prometheus
+    uid: DS_PROMETHEUS
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: false
+    editable: true
+    jsonData:
+      httpMethod: POST
+
   - name: Elasticsearch
+    uid: DS_ELASTICSEARCH
     type: elasticsearch
     url: http://elasticsearch:9200
     database: system_logs-*

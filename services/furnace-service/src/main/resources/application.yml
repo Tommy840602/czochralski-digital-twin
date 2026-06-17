@@ -6,37 +6,83 @@ spring:
     name: furnace-service
   config:
     import: "optional:configserver:http://localhost:8888"
-  data:
-    redis:
-      host: localhost
-      port: 6379
-      timeout: 2000ms
+
+  # ── TimescaleDB ─────────────────────────────────────────
   datasource:
     url: jdbc:postgresql://localhost:5433/furnace_db
     username: twin
     password: twin_secret
     driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 3000
+
   jpa:
     hibernate:
-      ddl-auto: none
+      ddl-auto: none      # 結構由 init.sql 管理，不讓 JPA 自動改
     open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        jdbc:
+          time_zone: UTC
 
+  # ── Redis ────────────────────────────────────────────────
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 8
+          min-idle: 2
+
+  # ── Kafka（接收 Flink 告警事件） ──────────────────────────
+  kafka:
+    bootstrap-servers: localhost:9092
+
+# ── Eureka ──────────────────────────────────────────────────
 eureka:
   client:
     service-url:
       defaultZone: http://localhost:8761/eureka/
+  instance:
+    prefer-ip-address: true
 
+# ── Management ─────────────────────────────────────────────
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus
+        include: health, info, prometheus, metrics
   health:
     db:
-      enabled: false
+      enabled: true
+    redis:
+      enabled: true
     diskspace:
       enabled: false
+  endpoint:
+    health:
+      show-details: always
 
+# ── CORS（供 Vue 3 開發伺服器使用） ────────────────────────
+cors:
+  allowed-origins:
+    - "http://localhost:5173"   # Vite dev server
+    - "http://localhost:3001"   # 備用
+    - "http://localhost:80"     # 生產前端
+
+# ── WebSocket ────────────────────────────────────────────────
+# furnace.push-interval-ms: WebSocket 推送間隔（ms）
+furnace:
+  push-interval-ms: 2000   # 每 2 秒推送一次
+
+# ── Logging ─────────────────────────────────────────────────
 logging:
   level:
     com.twin: DEBUG
+    org.springframework.web.socket: INFO
+    org.springframework.messaging: INFO

@@ -29,3 +29,5 @@ infra/elasticsearch/data/
 # 大型檔案
 *.csv
 data/
+docker-compose.yml.bak
+docker-compose.yml.bak

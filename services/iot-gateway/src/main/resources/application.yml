@@ -1,15 +1,13 @@
 server:
   port: 8090
-
 spring:
   application:
     name: iot-gateway
   config:
-    import: optional:configserver:http://localhost:8888
-
+    import: optional:configserver:http://twin-config:8888
 mqtt:
   broker:
-    url: tcp://localhost:1883
+    url: ${SPRING_MQTT_BROKER_URL:tcp://twin-mosquitto:1883}
     client-id: iot-gateway-${random.uuid}
     username:
     password:
@@ -17,20 +15,17 @@ mqtt:
       - furnace/#
     qos: 1
     keep-alive: 60
-
 kafka:
-  bootstrap-servers: localhost:9092
-  schema-registry: http://localhost:8081
+  bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:twin-kafka:9092}
+  schema-registry: http://twin-schema-registry:8081
   topics:
     furnace-data: furnace-data
     sensor-events: sensor-events
     alarm-events: alarm-events
-
 eureka:
   client:
     service-url:
-      defaultZone: http://localhost:8761/eureka/
-
+      defaultZone: ${EUREKA_CLIENT_SERVICEURL_DEFAULTZONE:http://twin-eureka:8761/eureka/}
 management:
   endpoints:
     web:
@@ -39,7 +34,6 @@ management:
   endpoint:
     health:
       show-details: always
-
 logging:
   level:
     com.twin: DEBUG

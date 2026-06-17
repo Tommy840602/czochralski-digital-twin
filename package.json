@@ -1,7 +1,10 @@
 {
   "dependencies": {
+    "@stomp/stompjs": "^7.3.0",
+    "axios": "^1.18.0",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "sockjs-client": "^1.6.1"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^6.0.2"

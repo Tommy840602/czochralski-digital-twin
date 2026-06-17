@@ -29,11 +29,22 @@ jobs:
         working-directory: services
         run: mvn clean package -DskipTests
 
+      - name: Build Flink Job
+        working-directory: flink-jobs
+        run: mvn clean package -DskipTests
+
       - name: Upload JARs
         uses: actions/upload-artifact@v4
         with:
           name: spring-jars
           path: services/*/target/*.jar
+          retention-days: 1
+
+      - name: Upload Flink JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: flink-jar
+          path: flink-jobs/target/flink-jobs-*.jar
           retention-days: 1
 
   # ── Job 2: Build & Push Docker Images ──
@@ -49,6 +60,12 @@ jobs:
         with:
           name: spring-jars
           path: services
+
+      - name: Download Flink JAR
+        uses: actions/download-artifact@v4
+        with:
+          name: flink-jar
+          path: flink-jobs/target
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -109,6 +126,20 @@ jobs:
           tags: tommy840602/czochralski-frontend:latest
           build-args: |
             NODE_VERSION=20
+
+      - name: Build & Push flink-jobs
+        uses: docker/build-push-action@v5
+        with:
+          context: flink-jobs
+          push: true
+          tags: tommy840602/czochralski-flink-jobs:latest
+
+      - name: Build & Push simulator (datapipe)
+        uses: docker/build-push-action@v5
+        with:
+          context: datapipe
+          push: true
+          tags: tommy840602/czochralski-simulator:latest
 
   # ── Job 3: Deploy to Server ──
   deploy:

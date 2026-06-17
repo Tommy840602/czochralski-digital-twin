@@ -1,4 +1,91 @@
-/* 全域重置 */
+/* ============================================================
+   長晶爐數位孿生 — Design Tokens & Global Styles
+   字型：JetBrains Mono（數值）+ Inter（說明）
+   調色板：深空工業風
+   ============================================================ */
+
+:root {
+  /* ── 調色板 ────────────────────────────────────────── */
+  --bg-0:       #060a0f;   /* 主背景（最深） */
+  --bg-1:       #0d1520;   /* 卡片背景 */
+  --bg-2:       #121e2e;   /* 次要區塊 */
+  --bg-3:       #1a2535;   /* hover / 邊框 */
+
+  --text-0:     #e2eef8;   /* 主文字 */
+  --text-1:     #8aaec8;   /* 次要文字 */
+  --text-2:     #4a6a88;   /* 暗示文字 */
+
+  --border:     rgba(56, 189, 248, 0.08);
+  --border-hi:  rgba(56, 189, 248, 0.2);
+
+  /* ── 強調色 ────────────────────────────────────────── */
+  --teal:       #38bdf8;   /* 主強調：天藍 */
+  --teal-dim:   rgba(56, 189, 248, 0.12);
+  --teal-glow:  rgba(56, 189, 248, 0.25);
+
+  --amber:      #f59e0b;   /* 告警：琥珀 */
+  --amber-dim:  rgba(245, 158, 11, 0.12);
+
+  --red:        #f87171;   /* 嚴重告警 */
+  --red-dim:    rgba(248, 113, 113, 0.12);
+
+  --green:      #34d399;   /* 正常/OK */
+  --green-dim:  rgba(52, 211, 153, 0.12);
+
+  --purple:     #a78bfa;   /* 歷史/分析 */
+  --purple-dim: rgba(167, 139, 250, 0.12);
+
+  /* ── 字型 ──────────────────────────────────────────── */
+  --font-mono: 'JetBrains Mono', 'Fira Mono', monospace;
+  --font-sans: 'Inter', -apple-system, sans-serif;
+
+  /* ── 間距 ──────────────────────────────────────────── */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* ── 陰影 ──────────────────────────────────────────── */
+  --shadow-teal: 0 0 24px rgba(56, 189, 248, 0.08);
+  --shadow-card: 0 2px 16px rgba(0, 0, 0, 0.4);
+}
+
+/* ── Reset ─────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { font-family: 'IBM Plex Sans', sans-serif; }
-button { cursor: pointer; font-family: inherit; }
+html, body { height: 100%; overflow: hidden; }
+
+body {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  background: var(--bg-0);
+  color: var(--text-0);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Utility classes ───────────────────────────────────── */
+.mono  { font-family: var(--font-mono); }
+.muted { color: var(--text-1); }
+.dim   { color: var(--text-2); }
+
+.badge {
+  display: inline-flex; align-items: center;
+  padding: 2px 8px; border-radius: var(--radius-sm);
+  font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+  letter-spacing: 0.06em;
+}
+.badge-teal   { background: var(--teal-dim);   color: var(--teal); }
+.badge-amber  { background: var(--amber-dim);  color: var(--amber); }
+.badge-red    { background: var(--red-dim);    color: var(--red); }
+.badge-green  { background: var(--green-dim);  color: var(--green); }
+.badge-purple { background: var(--purple-dim); color: var(--purple); }
+.badge-muted  { background: rgba(255,255,255,0.05); color: var(--text-1); }
+
+/* ── Scrollbar ─────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-hi); }
+
+/* ── Transition ────────────────────────────────────────── */
+.fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }

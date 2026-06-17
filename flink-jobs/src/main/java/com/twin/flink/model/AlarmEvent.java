@@ -2,7 +2,12 @@ package com.twin.flink.model;
 
 import java.io.Serializable;
 
+/**
+ * AlarmEvent — Flink CEP 觸發的告警事件（彈性多爐版）
+ * 移除 event 欄位（舊 C1/C2 格式），改用 operationMode 提供更豐富的上下文
+ */
 public class AlarmEvent implements Serializable {
+
     private String  alarmType;
     private String  furnaceId;
     private String  ingotNo;
@@ -11,14 +16,13 @@ public class AlarmEvent implements Serializable {
     private String  triggeredAt;
     private Double  diameter;
     private Double  heaterTemp;
-    private Integer event;
-    private String  operationMode;
+    private String  operationMode;   // 新增：發生告警時的作業模式
 
     public AlarmEvent() {}
 
     public AlarmEvent(String alarmType, String furnaceId, String ingotNo,
                       String severity, String message, String triggeredAt,
-                      Double diameter, Double heaterTemp, Integer event, String operationMode) {
+                      Double diameter, Double heaterTemp, String operationMode) {
         this.alarmType     = alarmType;
         this.furnaceId     = furnaceId;
         this.ingotNo       = ingotNo;
@@ -27,23 +31,21 @@ public class AlarmEvent implements Serializable {
         this.triggeredAt   = triggeredAt;
         this.diameter      = diameter;
         this.heaterTemp    = heaterTemp;
-        this.event         = event;
         this.operationMode = operationMode;
     }
 
-    public String  getAlarmType()     { return alarmType; }
-    public String  getFurnaceId()     { return furnaceId; }
-    public String  getIngotNo()       { return ingotNo; }
-    public String  getSeverity()      { return severity; }
-    public String  getMessage()       { return message; }
-    public String  getTriggeredAt()   { return triggeredAt; }
-    public Double  getDiameter()      { return diameter; }
-    public Double  getHeaterTemp()    { return heaterTemp; }
-    public Integer getEvent()         { return event; }
-    public String  getOperationMode() { return operationMode; }
+    public String getAlarmType()     { return alarmType; }
+    public String getFurnaceId()     { return furnaceId; }
+    public String getIngotNo()       { return ingotNo; }
+    public String getSeverity()      { return severity; }
+    public String getMessage()       { return message; }
+    public String getTriggeredAt()   { return triggeredAt; }
+    public Double getDiameter()      { return diameter; }
+    public Double getHeaterTemp()    { return heaterTemp; }
+    public String getOperationMode() { return operationMode; }
 
     @Override
     public String toString() {
-        return "[" + severity + "] " + alarmType + " furnace=" + furnaceId + " " + message;
+        return String.format("[%s][%s] %s | %s", severity, furnaceId, alarmType, message);
     }
 }

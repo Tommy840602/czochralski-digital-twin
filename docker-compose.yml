@@ -480,7 +480,7 @@ services:
     network_mode: host
     pid: host
     volumes:
-      - /:/host:ro,rslave
+      - /:/host:ro
 
   eureka-server:
     build: ./services/eureka-server
@@ -570,12 +570,95 @@ services:
       - twin-net
 
   frontend:
-    build: ./frontend
+    build: frontend＿react
     container_name: twin-frontend
     ports:
       - "80:80"
     depends_on:
       - api-gateway
       - furnace-service
+    networks:
+      - twin-net
+
+  flink-job-submitter:
+    image: curlimages/curl:latest
+    container_name: twin-flink-submitter
+    depends_on:
+      flink-jobmanager:
+        condition: service_healthy
+    volumes:
+      - ./flink-jobs/target:/jars:ro
+    networks:
+      - twin-net
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Waiting for Flink..."
+        sleep 10
+        echo "Uploading jar..."
+        RESPONSE=$$(curl -s -X POST http://twin-flink-jobmanager:8081/jars/upload \
+          -H "Expect:" \
+          -F "jarfile=@/jars/flink-jobs-1.0.0-SNAPSHOT.jar")
+        JAR_ID=$$(echo $$RESPONSE | grep -o '"filename":"[^"]*"' | sed 's|.*upload/||;s|"||g')
+        echo "JAR ID: $$JAR_ID"
+        sleep 3
+        curl -s -X POST "http://twin-flink-jobmanager:8081/jars/$$JAR_ID/run" \
+          -H "Content-Type: application/json" \
+          -d '{"entryClass":"com.twin.flink.job.FurnaceStreamJob","parallelism":1}'
+        echo "Job submitted!"
+
+  simulator-d1:
+    build: ./datapipe
+    container_name: twin-simulator-d1
+    <<: [*restart-policy, *default-logging]
+    depends_on:
+      mosquitto:
+        condition: service_started
+    command: ["python", "main.py", "--furnace", "D1", "--csv", "data/D1_all.csv", "--interval", "0.1", "--host", "twin-mosquitto", "--api-port", "8091"]
+    networks:
+      - twin-net
+
+  simulator-d3:
+    build: ./datapipe
+    container_name: twin-simulator-d3
+    <<: [*restart-policy, *default-logging]
+    depends_on:
+      mosquitto:
+        condition: service_started
+    command: ["python", "main.py", "--furnace", "D3", "--csv", "data/D3_all.csv", "--interval", "0.1", "--host", "twin-mosquitto", "--api-port", "8092"]
+    networks:
+      - twin-net
+
+  simulator-db:
+    build: ./datapipe
+    container_name: twin-simulator-db
+    <<: [*restart-policy, *default-logging]
+    depends_on:
+      mosquitto:
+        condition: service_started
+    command: ["python", "main.py", "--furnace", "DB", "--csv", "data/DB_all.csv", "--interval", "0.1", "--host", "twin-mosquitto", "--api-port", "8093"]
+    networks:
+      - twin-net
+
+  simulator-f7:
+    build: ./datapipe
+    container_name: twin-simulator-f7
+    <<: [*restart-policy, *default-logging]
+    depends_on:
+      mosquitto:
+        condition: service_started
+    command: ["python", "main.py", "--furnace", "F7", "--csv", "data/F7_all.csv", "--interval", "0.1", "--host", "twin-mosquitto", "--api-port", "8094"]
+    networks:
+      - twin-net
+
+  simulator-fa:
+    build: ./datapipe
+    container_name: twin-simulator-fa
+    <<: [*restart-policy, *default-logging]
+    depends_on:
+      mosquitto:
+        condition: service_started
+    command: ["python", "main.py", "--furnace", "FA", "--csv", "data/FA_all.csv", "--interval", "0.1", "--host", "twin-mosquitto", "--api-port", "8095"]
     networks:
       - twin-net

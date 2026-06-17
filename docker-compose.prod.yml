@@ -1,8 +1,494 @@
+# ============================================================
+#  長晶爐數位孿生 — 生產環境 Docker Compose（完整版）
+#  新增爐子：在 simulator-* 區塊仿照格式加一個 service
+# ============================================================
+
+x-restart: &restart-policy
+  restart: always
+
+x-logging: &default-logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "50m"
+      max-file: "3"
+
+networks:
+  twin-net:
+    driver: bridge
+
+volumes:
+  kafka-data:
+  zookeeper-data:
+  zookeeper-log:
+  timescale-data:
+  mongo-data:
+  redis-data:
+  elasticsearch-data:
+  grafana-data:
+  prometheus-data:
+  mosquitto-data:
+  mosquitto-log:
+  flink-checkpoint:
+
 services:
+
+  # ─────────────────────────────────────────
+  # 1. MQTT BROKER (Eclipse Mosquitto)
+  # ─────────────────────────────────────────
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: twin-mosquitto
+    <<: [*restart-policy, *default-logging]
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./infra/mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-log:/mosquitto/log
+    networks:
+      - twin-net
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 1883 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────
+  # 2. ZOOKEEPER (Kafka 依賴)
+  # ─────────────────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: twin-zookeeper
+    <<: [*restart-policy, *default-logging]
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_SYNC_LIMIT: 2
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-log:/var/lib/zookeeper/log
+    networks:
+      - twin-net
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 2181 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ─────────────────────────────────────────
+  # 3. KAFKA BROKER
+  # ─────────────────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: twin-kafka
+    <<: [*restart-policy, *default-logging]
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+      - "9094:9094"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9093,PLAINTEXT_HOST://localhost:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_RETENTION_BYTES: 1073741824
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_JMX_PORT: 9999
+      KAFKA_JMX_HOSTNAME: kafka
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks:
+      - twin-net
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 9093 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # ─────────────────────────────────────────
+  # 4. KAFKA SCHEMA REGISTRY
+  # ─────────────────────────────────────────
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.0
+    container_name: twin-schema-registry
+    <<: [*restart-policy, *default-logging]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9093
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    networks:
+      - twin-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/subjects"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ─────────────────────────────────────────
+  # 5. KAFKA TOPICS INIT (一次性建立 Topics)
+  # ─────────────────────────────────────────
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: twin-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - twin-net
+    command: >
+      bash -c "
+        echo '=== 建立 Kafka Topics ==='
+        kafka-topics --bootstrap-server kafka:9093 --create --if-not-exists \
+          --topic furnace-data --partitions 3 --replication-factor 1 \
+          --config retention.ms=604800000 --config cleanup.policy=delete
+        kafka-topics --bootstrap-server kafka:9093 --create --if-not-exists \
+          --topic sensor-events --partitions 3 --replication-factor 1 \
+          --config retention.ms=604800000
+        kafka-topics --bootstrap-server kafka:9093 --create --if-not-exists \
+          --topic alarm-events --partitions 1 --replication-factor 1 \
+          --config retention.ms=2592000000
+        echo '=== Topics 清單 ==='
+        kafka-topics --bootstrap-server kafka:9093 --list
+        echo '=== 完成 ==='
+      "
+
+  # ─────────────────────────────────────────
+  # 6. KAFKA UI
+  # ─────────────────────────────────────────
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: twin-kafka-ui
+    <<: [*restart-policy, *default-logging]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: twin-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9093
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
+      KAFKA_CLUSTERS_0_METRICS_PORT: 9999
+      DYNAMIC_CONFIG_ENABLED: "true"
+    networks:
+      - twin-net
+
+  # ─────────────────────────────────────────
+  # 7. FLINK JOB MANAGER
+  # ─────────────────────────────────────────
+  flink-jobmanager:
+    image: flink:2.2.1-java17
+    container_name: twin-flink-jobmanager
+    <<: [*restart-policy, *default-logging]
+    command: jobmanager
+    ports:
+      - "8083:8081"
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        jobmanager.memory.process.size: 1600m
+        taskmanager.memory.process.size: 2048m
+        taskmanager.numberOfTaskSlots: 4
+        parallelism.default: 2
+        state.backend: hashmap
+        state.checkpoints.dir: file:///opt/flink/checkpoints
+        execution.checkpointing.interval: 30s
+        execution.checkpointing.mode: EXACTLY_ONCE
+        rest.flamegraph.enabled: true
+    volumes:
+      - flink-checkpoint:/opt/flink/checkpoints
+    networks:
+      - twin-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/overview"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # ─────────────────────────────────────────
+  # 8. FLINK TASK MANAGER
+  # ─────────────────────────────────────────
+  flink-taskmanager:
+    image: flink:2.2.1-java17
+    container_name: twin-flink-taskmanager
+    <<: [*restart-policy, *default-logging]
+    command: taskmanager
+    depends_on:
+      flink-jobmanager:
+        condition: service_healthy
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.memory.process.size: 2048m
+        taskmanager.numberOfTaskSlots: 4
+        parallelism.default: 2
+        state.backend: hashmap
+        state.checkpoints.dir: file:///opt/flink/checkpoints
+    volumes:
+      - flink-checkpoint:/opt/flink/checkpoints
+    networks:
+      - twin-net
+
+  # ─────────────────────────────────────────
+  # 9. TIMESCALEDB
+  # ─────────────────────────────────────────
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: twin-timescaledb
+    <<: [*restart-policy, *default-logging]
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: twin
+      POSTGRES_PASSWORD: twin_secret
+      POSTGRES_DB: furnace_db
+      TIMESCALEDB_TELEMETRY: "off"
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+      - ./infra/timescaledb/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    networks:
+      - twin-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U twin -d furnace_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ─────────────────────────────────────────
+  # 10. MONGODB
+  # ─────────────────────────────────────────
+  mongodb:
+    image: mongo:7.0
+    container_name: twin-mongodb
+    <<: [*restart-policy, *default-logging]
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: twin
+      MONGO_INITDB_ROOT_PASSWORD: twin_secret
+      MONGO_INITDB_DATABASE: twin_db
+    volumes:
+      - mongo-data:/data/db
+      - ./infra/mongodb/init.js:/docker-entrypoint-initdb.d/init.js:ro
+    networks:
+      - twin-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')", "--quiet"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ─────────────────────────────────────────
+  # 11. REDIS
+  # ─────────────────────────────────────────
+  redis:
+    image: redis:7.2-alpine
+    container_name: twin-redis
+    <<: [*restart-policy, *default-logging]
+    ports:
+      - "6379:6379"
+    command: >
+      redis-server
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --appendonly no
+      --save ""
+      --notify-keyspace-events "Ex"
+    volumes:
+      - redis-data:/data
+    networks:
+      - twin-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  # ─────────────────────────────────────────
+  # 12. ELASTICSEARCH
+  # ─────────────────────────────────────────
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
+    container_name: twin-elasticsearch
+    <<: [*restart-policy, *default-logging]
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - cluster.name=twin-es-cluster
+      - node.name=twin-es-node
+      - bootstrap.memory_lock=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    networks:
+      - twin-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 15
+      start_period: 60s
+
+  # ─────────────────────────────────────────
+  # 13. KIBANA
+  # ─────────────────────────────────────────
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.13.0
+    container_name: twin-kibana
+    <<: [*restart-policy, *default-logging]
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    ports:
+      - "5601:5601"
+    environment:
+      ELASTICSEARCH_HOSTS: '["http://elasticsearch:9200"]'
+      KIBANA_SYSTEM_PASSWORD: twin_secret
+      xpack.security.enabled: "false"
+      SERVER_NAME: twin-kibana
+    networks:
+      - twin-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5601/api/status | grep -q 'available'"]
+      interval: 20s
+      timeout: 10s
+      retries: 15
+      start_period: 60s
+
+  # ─────────────────────────────────────────
+  # 14. LOGSTASH
+  # ─────────────────────────────────────────
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.13.0
+    container_name: twin-logstash
+    <<: [*restart-policy, *default-logging]
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    ports:
+      - "5044:5044"
+      - "5010:5000/tcp"
+      - "5010:5000/udp"
+      - "9600:9600"
+    environment:
+      LS_JAVA_OPTS: "-Xmx256m -Xms256m"
+    volumes:
+      - ./infra/logstash/pipeline/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+      - ./infra/logstash/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+    networks:
+      - twin-net
+
+  # ─────────────────────────────────────────
+  # 15. PROMETHEUS
+  # ─────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: twin-prometheus
+    <<: [*restart-policy, *default-logging]
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    networks:
+      - twin-net
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────
+  # 16. GRAFANA
+  # ─────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: twin-grafana
+    <<: [*restart-policy, *default-logging]
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: twin_admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
+      GF_SERVER_ROOT_URL: http://localhost:3000
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - twin-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health | grep -q ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ─────────────────────────────────────────
+  # 17. NODE EXPORTER
+  # ─────────────────────────────────────────
+  node-exporter:
+    image: prom/node-exporter:v1.7.0
+    container_name: twin-node-exporter
+    <<: [*restart-policy, *default-logging]
+    command:
+      - '--path.rootfs=/host'
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    network_mode: host
+    pid: host
+    volumes:
+      - /:/host:ro
+
+  # ─────────────────────────────────────────
+  # 18-23. SPRING BOOT 微服務（從 Docker Hub 拉取）
+  # ─────────────────────────────────────────
   eureka-server:
     image: tommy840602/czochralski-eureka:latest
     container_name: twin-eureka
-    restart: always
+    <<: [*restart-policy, *default-logging]
     ports:
       - "8761:8761"
     networks:
@@ -16,7 +502,7 @@ services:
   config-server:
     image: tommy840602/czochralski-config:latest
     container_name: twin-config
-    restart: always
+    <<: [*restart-policy, *default-logging]
     ports:
       - "8888:8888"
     depends_on:
@@ -28,16 +514,20 @@ services:
   iot-gateway:
     image: tommy840602/czochralski-iot-gateway:latest
     container_name: twin-iot-gateway
-    restart: always
+    <<: [*restart-policy, *default-logging]
     ports:
       - "8090:8090"
     environment:
-      - SPRING_PROFILES_ACTIVE=docker
       - SPRING_CONFIG_IMPORT=optional:configserver:http://twin-config:8888
       - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://twin-eureka:8761/eureka/
+      - SPRING_MQTT_BROKER_URL=tcp://twin-mosquitto:1883
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=twin-kafka:9093
     depends_on:
       eureka-server:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      mosquitto:
         condition: service_healthy
     networks:
       - twin-net
@@ -45,11 +535,10 @@ services:
   furnace-service:
     image: tommy840602/czochralski-furnace:latest
     container_name: twin-furnace-service
-    restart: always
+    <<: [*restart-policy, *default-logging]
     ports:
       - "8091:8091"
     environment:
-      - SPRING_PROFILES_ACTIVE=docker
       - SPRING_CONFIG_IMPORT=optional:configserver:http://twin-config:8888
       - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://twin-eureka:8761/eureka/
       - SPRING_DATA_REDIS_HOST=twin-redis
@@ -59,22 +548,27 @@ services:
     depends_on:
       eureka-server:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
     networks:
       - twin-net
 
   alarm-service:
     image: tommy840602/czochralski-alarm:latest
     container_name: twin-alarm-service
-    restart: always
+    <<: [*restart-policy, *default-logging]
     ports:
       - "8092:8092"
     environment:
-      - SPRING_PROFILES_ACTIVE=docker
       - SPRING_CONFIG_IMPORT=optional:configserver:http://twin-config:8888
       - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://twin-eureka:8761/eureka/
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=twin-kafka:9093
     depends_on:
       eureka-server:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
     networks:
       - twin-net
@@ -82,11 +576,10 @@ services:
   api-gateway:
     image: tommy840602/czochralski-api-gateway:latest
     container_name: twin-api-gateway
-    restart: always
+    <<: [*restart-policy, *default-logging]
     ports:
       - "8085:8085"
     environment:
-      - SPRING_PROFILES_ACTIVE=docker
       - SPRING_CONFIG_IMPORT=optional:configserver:http://twin-config:8888
       - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://twin-eureka:8761/eureka/
     depends_on:
@@ -95,10 +588,13 @@ services:
     networks:
       - twin-net
 
+  # ─────────────────────────────────────────
+  # 24. FRONTEND
+  # ─────────────────────────────────────────
   frontend:
     image: tommy840602/czochralski-frontend:latest
     container_name: twin-frontend
-    restart: always
+    <<: [*restart-policy, *default-logging]
     ports:
       - "80:80"
     depends_on:
@@ -107,26 +603,93 @@ services:
     networks:
       - twin-net
 
-  datapipe-c1:
-    build: ./datapipe
-    container_name: twin-datapipe-c1
-    restart: always
-    environment:
-      - MQTT_HOST=twin-mosquitto
-    command: ["python", "main.py", "--furnace", "C1", "--csv", "data/C2_growthIdx_1.csv", "--interval", "10"]
+  # ─────────────────────────────────────────
+  # 25. FLINK JOB SUBMITTER（自動提交 job，容器啟動後執行一次）
+  # ─────────────────────────────────────────
+  flink-job-submitter:
+    image: curlimages/curl:latest
+    container_name: twin-flink-submitter
     depends_on:
-      - twin-mosquitto
+      flink-jobmanager:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./flink-jobs/target:/jars:ro
+    networks:
+      - twin-net
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Waiting for Flink..."
+        sleep 10
+        echo "Uploading jar..."
+        RESPONSE=$$(curl -s -X POST http://twin-flink-jobmanager:8081/jars/upload \
+          -H "Expect:" \
+          -F "jarfile=@/jars/flink-jobs-1.0.0-SNAPSHOT.jar")
+        JAR_ID=$$(echo $$RESPONSE | grep -o '"filename":"[^"]*"' | sed 's|.*upload/||;s|"||g')
+        echo "JAR ID: $$JAR_ID"
+        sleep 3
+        curl -s -X POST "http://twin-flink-jobmanager:8081/jars/$$JAR_ID/run" \
+          -H "Content-Type: application/json" \
+          -d '{"entryClass":"com.twin.flink.job.FurnaceStreamJob","parallelism":1}'
+        echo "Job submitted!"
+
+  # ─────────────────────────────────────────
+  # 26-30. SIMULATOR（從 Docker Hub 拉取，新增爐子請仿照此格式）
+  # ─────────────────────────────────────────
+  simulator-d1:
+    image: tommy840602/czochralski-simulator:latest
+    container_name: twin-simulator-d1
+    <<: [*restart-policy, *default-logging]
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    command: ["python", "main.py", "--furnace", "D1", "--csv", "data/D1_all.csv", "--interval", "0.1", "--host", "twin-mosquitto", "--api-port", "8091"]
     networks:
       - twin-net
 
-  datapipe-c2:
-    build: ./datapipe
-    container_name: twin-datapipe-c2
-    restart: always
-    environment:
-      - MQTT_HOST=twin-mosquitto
-    command: ["python", "main.py", "--furnace", "C2", "--csv", "data/C2_growthIdx_5.csv", "--interval", "10"]
+  simulator-d3:
+    image: tommy840602/czochralski-simulator:latest
+    container_name: twin-simulator-d3
+    <<: [*restart-policy, *default-logging]
     depends_on:
-      - twin-mosquitto
+      mosquitto:
+        condition: service_healthy
+    command: ["python", "main.py", "--furnace", "D3", "--csv", "data/D3_all.csv", "--interval", "0.1", "--host", "twin-mosquitto", "--api-port", "8092"]
+    networks:
+      - twin-net
+
+  simulator-db:
+    image: tommy840602/czochralski-simulator:latest
+    container_name: twin-simulator-db
+    <<: [*restart-policy, *default-logging]
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    command: ["python", "main.py", "--furnace", "DB", "--csv", "data/DB_all.csv", "--interval", "0.1", "--host", "twin-mosquitto", "--api-port", "8093"]
+    networks:
+      - twin-net
+
+  simulator-f7:
+    image: tommy840602/czochralski-simulator:latest
+    container_name: twin-simulator-f7
+    <<: [*restart-policy, *default-logging]
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    command: ["python", "main.py", "--furnace", "F7", "--csv", "data/F7_all.csv", "--interval", "0.1", "--host", "twin-mosquitto", "--api-port", "8094"]
+    networks:
+      - twin-net
+
+  simulator-fa:
+    image: tommy840602/czochralski-simulator:latest
+    container_name: twin-simulator-fa
+    <<: [*restart-policy, *default-logging]
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    command: ["python", "main.py", "--furnace", "FA", "--csv", "data/FA_all.csv", "--interval", "0.1", "--host", "twin-mosquitto", "--api-port", "8095"]
     networks:
       - twin-net
