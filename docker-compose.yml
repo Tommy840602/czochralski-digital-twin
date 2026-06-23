@@ -139,9 +139,9 @@ services:
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8081/subjects"]
       interval: 15s
-      timeout: 5s
+      timeout: 10s
       retries: 10
-      start_period: 20s
+      start_period: 60s
 
   # ─────────────────────────────────────────
   # 5. KAFKA TOPICS INIT (一次性建立 Topics)
@@ -154,22 +154,18 @@ services:
         condition: service_healthy
     networks:
       - twin-net
-    command: >
-      bash -c "
+    restart: "no"
+    command:
+      - bash
+      - -c
+      - |
         echo '=== 建立 Kafka Topics ==='
-        kafka-topics --bootstrap-server kafka:9093 --create --if-not-exists \
-          --topic furnace-data --partitions 3 --replication-factor 1 \
-          --config retention.ms=604800000 --config cleanup.policy=delete
-        kafka-topics --bootstrap-server kafka:9093 --create --if-not-exists \
-          --topic sensor-events --partitions 3 --replication-factor 1 \
-          --config retention.ms=604800000
-        kafka-topics --bootstrap-server kafka:9093 --create --if-not-exists \
-          --topic alarm-events --partitions 1 --replication-factor 1 \
-          --config retention.ms=2592000000
+        kafka-topics --bootstrap-server kafka:9093 --create --if-not-exists --topic furnace-data --partitions 3 --replication-factor 1 --config retention.ms=604800000 --config cleanup.policy=delete
+        kafka-topics --bootstrap-server kafka:9093 --create --if-not-exists --topic sensor-events --partitions 3 --replication-factor 1 --config retention.ms=604800000
+        kafka-topics --bootstrap-server kafka:9093 --create --if-not-exists --topic alarm-events --partitions 1 --replication-factor 1 --config retention.ms=2592000000
         echo '=== Topics 清單 ==='
         kafka-topics --bootstrap-server kafka:9093 --list
         echo '=== 完成 ==='
-      "
 
   # ─────────────────────────────────────────
   # 6. KAFKA UI (便於開發查看)

@@ -14,7 +14,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/furnaces")
-@CrossOrigin(origins = "*")
 public class FurnaceController {
     private static final Logger log = LoggerFactory.getLogger(FurnaceController.class);
     private final FurnaceService furnaceService;
@@ -58,3 +57,4 @@ public class FurnaceController {
         return ResponseEntity.ok(Map.of("furnaceId", id, "status", status));
     }
 }
+

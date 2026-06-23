@@ -10,16 +10,12 @@ spring:
         - id: furnace-service
           uri: lb://furnace-service
           predicates:
-            - Path=/api/furnace/**
-          filters:
-            - StripPrefix=1
+            - Path=/furnaces/**
 
         - id: alarm-service
           uri: lb://alarm-service
           predicates:
-            - Path=/api/alarm/**
-          filters:
-            - StripPrefix=1
+            - Path=/alarms/**
 
         - id: twin-state-service
           uri: lb://twin-state-service
@@ -48,6 +44,18 @@ spring:
           args:
             name: defaultCB
             fallbackUri: forward:/fallback
+
+resilience4j:
+  timelimiter:
+    instances:
+      defaultCB:
+        timeout-duration: 10s
+  circuitbreaker:
+    instances:
+      defaultCB:
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 5s
 
 eureka:
   client:

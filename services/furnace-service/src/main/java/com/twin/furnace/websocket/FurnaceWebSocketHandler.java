@@ -1,4 +1,5 @@
 package com.twin.furnace.websocket;
+
 import com.twin.furnace.dto.FurnaceLatestDto;
 import com.twin.furnace.service.FurnaceService;
 import org.slf4j.Logger;
@@ -20,12 +21,16 @@ public class FurnaceWebSocketHandler {
 
     @Scheduled(fixedDelay = 2000)
     public void pushAllFurnaces() {
-        List<FurnaceLatestDto> all = furnaceService.getAllLatest();
-        for (FurnaceLatestDto dto : all) {
-            try { messaging.convertAndSend("/topic/furnace/" + dto.getFurnaceId(), dto); }
-            catch (Exception e) { log.warn("推送失敗 {}: {}", dto.getFurnaceId(), e.getMessage()); }
+        try {
+            List<FurnaceLatestDto> all = furnaceService.getAllLatest();
+            for (FurnaceLatestDto dto : all) {
+                try { messaging.convertAndSend("/topic/furnace/" + dto.getFurnaceId(), dto); }
+                catch (Exception e) { log.warn("推送失敗 {}: {}", dto.getFurnaceId(), e.getMessage()); }
+            }
+            try { messaging.convertAndSend("/topic/furnaces/all", all); }
+            catch (Exception e) { log.warn("推送 all 失敗: {}", e.getMessage()); }
+        } catch (Exception e) {
+            log.error("pushAllFurnaces tick failed, will retry next interval", e);
         }
-        try { messaging.convertAndSend("/topic/furnaces/all", all); }
-        catch (Exception e) { log.warn("推送 all 失敗: {}", e.getMessage()); }
     }
 }

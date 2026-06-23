@@ -1,10 +1,15 @@
 <template>
   <div class="twin-view">
     <FurnaceScene
-      :furnace-data="sceneData"
+      :furnace-data="store.liveData"
       :furnace-ids="store.furnaceIds"
-      :selected-id="store.selected"
-      @select-furnace="store.selectFurnace"
+      @open-section="onOpenSection"
+    />
+
+    <SectionViewModal
+      :furnace-id="sectionFurnaceId"
+      :live-data="store.liveData"
+      @close="onCloseSection"
     />
 
     <!-- KPI overlay -->
@@ -45,6 +50,18 @@
       </div>
     </Transition>
 
+    <!-- 即時趨勢面板 -->
+    <button class="trends-toggle mono" @click="showTrends = !showTrends">
+      {{ showTrends ? '◧ 隱藏' : '◨ 即時' }}
+    </button>
+    <Transition name="slide-left">
+      <RealtimeTrends
+        v-if="showTrends && store.selected"
+        :furnace-id="store.selected"
+        class="trends-panel"
+      />
+    </Transition>
+
     <!-- 爐子選擇按鈕 -->
     <div class="furnace-pills">
       <button
@@ -64,8 +81,15 @@
 import { computed, ref, reactive, onUnmounted } from "vue"
 import { useFurnaceStore } from "@/stores/furnaceStore.js"
 import FurnaceScene from "@/components/FurnaceScene.vue"
+import RealtimeTrends from "@/components/RealtimeTrends.vue"
+import SectionViewModal from '@/components/SectionViewModal.vue'
 
 const store = useFurnaceStore()
+const showTrends = ref(true)
+const sectionFurnaceId = ref(null)
+
+function onOpenSection(id) { sectionFurnaceId.value = id }
+function onCloseSection()   { sectionFurnaceId.value = null }
 
 // ── KPI 面板拖移 ──────────────────────────────────────
 const kpiEl = ref(null)
@@ -252,6 +276,24 @@ function fmt(val, dec) {
   border-color: #38bdf8;
   color: #38bdf8;
 }
+
+.trends-toggle {
+  position: absolute; top: 16px; left: 16px; z-index: 11;
+  background: rgba(8, 14, 22, 0.8);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  color: #38bdf8; border-radius: 6px;
+  padding: 6px 12px; font-size: 11px; cursor: pointer;
+  backdrop-filter: blur(8px); transition: border-color 0.2s;
+}
+.trends-toggle:hover { border-color: #38bdf8; }
+
+.trends-panel {
+  position: absolute; top: 56px; left: 16px; bottom: 16px;
+  width: 320px; z-index: 10; overflow-y: auto;
+}
+
+.slide-left-enter-active, .slide-left-leave-active { transition: all 0.25s ease; }
+.slide-left-enter-from, .slide-left-leave-to { opacity: 0; transform: translateX(-20px); }
 
 .slide-enter-active, .slide-leave-active { transition: all 0.25s ease; }
 .slide-enter-from, .slide-leave-to { opacity: 0; transform: translateX(20px); }

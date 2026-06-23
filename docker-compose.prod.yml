@@ -217,6 +217,7 @@ services:
         rest.flamegraph.enabled: true
     volumes:
       - flink-checkpoint:/opt/flink/checkpoints
+      - ./flink-jobs/target/flink-jobs-1.0.0-SNAPSHOT.jar:/opt/flink-jobs.jar:ro
     networks:
       - twin-net
     healthcheck:
@@ -545,6 +546,9 @@ services:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://twin-timescaledb:5432/furnace_db
       - SPRING_DATASOURCE_USERNAME=twin
       - SPRING_DATASOURCE_PASSWORD=twin_secret
+      - SPRING_DATASOURCE_HIKARI_MAX_LIFETIME=600000
+      - SPRING_DATASOURCE_HIKARI_KEEPALIVE_TIME=60000
+      - SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT=5000
     depends_on:
       eureka-server:
         condition: service_healthy
@@ -607,7 +611,7 @@ services:
   # 25. FLINK JOB SUBMITTER（自動提交 job，容器啟動後執行一次）
   # ─────────────────────────────────────────
   flink-job-submitter:
-    image: curlimages/curl:latest
+    image: flink:2.2.1-java17
     container_name: twin-flink-submitter
     depends_on:
       flink-jobmanager:
@@ -615,26 +619,28 @@ services:
       kafka-init:
         condition: service_completed_successfully
     volumes:
-      - ./flink-jobs/target:/jars:ro
+      - ./flink-jobs/target/flink-jobs-1.0.0-SNAPSHOT.jar:/opt/flink-jobs.jar:ro
     networks:
       - twin-net
     restart: "no"
-    entrypoint: ["/bin/sh", "-c"]
+    entrypoint: /bin/bash
     command:
+      - -c
       - |
-        echo "Waiting for Flink..."
-        sleep 10
-        echo "Uploading jar..."
-        RESPONSE=$$(curl -s -X POST http://twin-flink-jobmanager:8081/jars/upload \
-          -H "Expect:" \
-          -F "jarfile=@/jars/flink-jobs-1.0.0-SNAPSHOT.jar")
-        JAR_ID=$$(echo $$RESPONSE | grep -o '"filename":"[^"]*"' | sed 's|.*upload/||;s|"||g')
-        echo "JAR ID: $$JAR_ID"
-        sleep 3
-        curl -s -X POST "http://twin-flink-jobmanager:8081/jars/$$JAR_ID/run" \
-          -H "Content-Type: application/json" \
-          -d '{"entryClass":"com.twin.flink.job.FurnaceStreamJob","parallelism":1}'
-        echo "Job submitted!"
+        echo "等待 Flink JobManager REST API..."
+        until curl -sf http://flink-jobmanager:8081/overview > /dev/null 2>&1; do
+          sleep 3
+        done
+        echo "Flink 就緒，檢查既有 job..."
+        if flink list -m flink-jobmanager:8081 2>/dev/null | grep -qE 'RUNNING.*FurnaceStreamJob'; then
+          echo "Job 已在跑，略過提交。"
+          exit 0
+        fi
+        echo "提交 Flink Job..."
+        flink run -d -m flink-jobmanager:8081 \
+          -c com.twin.flink.job.FurnaceStreamJob \
+          /opt/flink-jobs.jar
+        echo "完成。"
 
   # ─────────────────────────────────────────
   # 26-30. SIMULATOR（從 Docker Hub 拉取，新增爐子請仿照此格式）

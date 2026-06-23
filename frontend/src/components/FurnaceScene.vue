@@ -12,11 +12,18 @@ const props = defineProps({
   furnaceIds:  { type: Array,  default: () => [] }
 })
 
+// ★ 新增：雙擊爐子時通知父層開啟剖面 modal
+const emit = defineEmits(['open-section'])
+
 const mountEl = ref(null)
 let renderer, scene, camera, controls, animId
 const furnaces = {}
 const labelSprites = {}
 const dataRef = { current: {} }
+
+// ★ raycaster 與滑鼠座標（重用同一份，不每次 new）
+const raycaster = new THREE.Raycaster()
+const ndcMouse = new THREE.Vector2()
 
 watch(() => props.furnaceData, val => { dataRef.current = val }, { deep: true })
 
@@ -28,6 +35,7 @@ watch(() => props.furnaceIds, ids => {
     const offsetX = (idx - (ids.length - 1) / 2) * GAP
     const group = buildFurnace()
     group.position.set(offsetX, 0, 0)
+    group.userData.furnaceId = id   // ★ 在 group 上標 id，raycaster 抓到 mesh 後往上找
     scene.add(group)
 
     const light = new THREE.PointLight(0xffffff, 3, 10, 2)
@@ -61,66 +69,54 @@ function buildFurnace() {
   const g = new THREE.Group()
   const metal = (c, r=0.35) => new THREE.MeshStandardMaterial({ color: c, metalness: 0.65, roughness: r })
 
-  // 底座
   const base = new THREE.Mesh(new THREE.CylinderGeometry(1.3,1.4,0.25,32), metal(0x1a1a1a))
   base.position.y = 0.125; base.receiveShadow = true; g.add(base)
 
-  // 爐體
   const body = new THREE.Mesh(
     new THREE.CylinderGeometry(1.1,1.25,2.8,48),
     new THREE.MeshStandardMaterial({ color:0x2e3540, metalness:0.8, roughness:0.25, transparent:true, opacity:0.8 })
   )
   body.position.y = 1.65; body.castShadow = true; body.name = "heater_body"; g.add(body)
 
-  // 腰環
   const waist = new THREE.Mesh(new THREE.CylinderGeometry(0.95,1.1,0.3,32), metal(0x445060,0.35))
   waist.position.y = 2.95; g.add(waist)
 
-  // 上蓋
   const top = new THREE.Mesh(new THREE.CylinderGeometry(0.7,0.95,0.5,32), metal(0x2a3040,0.3))
   top.position.y = 3.35; top.castShadow = true; g.add(top)
 
-  // 頸管
   const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.22,1.4,16), metal(0x1e2a38,0.35))
   neck.position.y = 4.35; neck.castShadow = true; g.add(neck)
 
-  // 發光環
   const glowRing = new THREE.Mesh(
     new THREE.TorusGeometry(1.13,0.04,16,64),
     new THREE.MeshBasicMaterial({ color: 0xff2200 })
   )
   glowRing.rotation.x = Math.PI/2; glowRing.position.y = 1.4; glowRing.name = "glow_ring"; g.add(glowRing)
 
-  // 鋼琴線
   const wire = new THREE.Mesh(
     new THREE.CylinderGeometry(0.012,0.012,3.5,8),
     new THREE.MeshStandardMaterial({ color:0xccddee, metalness:1.0, roughness:0.05 })
   )
   wire.position.y = 3.55; wire.name = "seed_wire"; g.add(wire)
 
-  // 熔湯
   const melt = new THREE.Mesh(
     new THREE.CylinderGeometry(0.78,0.78,0.06,64),
     new THREE.MeshStandardMaterial({ color:0xff6600, emissive:new THREE.Color(0xff4400), emissiveIntensity:0.8, roughness:0.15, metalness:0.7 })
   )
   melt.position.y = 1.0; melt.name = "melt_pool"; g.add(melt)
 
-  // 熔湯波紋
   const r1 = new THREE.Mesh(new THREE.TorusGeometry(0.25,0.02,8,32), new THREE.MeshBasicMaterial({ color:0xff6600, transparent:true, opacity:0.6 }))
   r1.rotation.x = Math.PI/2; r1.position.y = 1.03; r1.name = "ripple1"; g.add(r1)
   const r2 = new THREE.Mesh(new THREE.TorusGeometry(0.5,0.02,8,32), new THREE.MeshBasicMaterial({ color:0xff8800, transparent:true, opacity:0.4 }))
   r2.rotation.x = Math.PI/2; r2.position.y = 1.03; r2.name = "ripple2"; g.add(r2)
 
-  // 晶棒（沿鋼琴線 x=0,z=0 從熔湯往上長）
   const crystalGroup = new THREE.Group()
   crystalGroup.name = "crystal_ingot"
   crystalGroup.position.set(0, 1.5, 0)
   crystalGroup.scale.set(0.1, 0.1, 0.1)
 
   const crystalMat = new THREE.MeshStandardMaterial({
-    color: 0x778899,
-    metalness: 0.85,
-    roughness: 0.12
+    color: 0x778899, metalness: 0.85, roughness: 0.12
   })
 
   const seedCone = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.4, 32), crystalMat)
@@ -137,7 +133,6 @@ function buildFurnace() {
 
   g.add(crystalGroup)
 
-  // 管線（左右）
   ;[-1,1].forEach(side => {
     const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,0.9,8), metal(0x2a3a4a))
     pipe.rotation.z = Math.PI/2; pipe.position.set(side*1.25, 1.2, 0); g.add(pipe)
@@ -175,13 +170,33 @@ function drawLabel(ctx, canvas, id, isNg) {
   ctx.fillText("爐 " + id, 128, 32)
 }
 
+// ★ 雙擊偵測：raycaster 找到的 mesh 往上找最近一個有 furnaceId 的 group
+function onDoubleClick(ev) {
+  if (!renderer || !camera || !scene) return
+  const rect = renderer.domElement.getBoundingClientRect()
+  ndcMouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1
+  ndcMouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1
+
+  raycaster.setFromCamera(ndcMouse, camera)
+  // 只射主要爐子 group(過濾掉地面、粒子、標籤)
+  const targets = Object.values(furnaces).map(f => f.group)
+  const hits = raycaster.intersectObjects(targets, true)
+  if (hits.length === 0) return
+
+  // 從命中 mesh 往上找 furnaceId
+  let node = hits[0].object
+  while (node && !node.userData?.furnaceId) node = node.parent
+  if (node?.userData?.furnaceId) {
+    emit('open-section', node.userData.furnaceId)
+  }
+}
+
 window._furnaces = furnaces
 function animate() {
   animId = requestAnimationFrame(animate)
   const data = dataRef.current
   const t = performance.now() / 1000
 
-  // 自動同步新爐子
   if (Object.keys(data).length > 0 && Object.keys(furnaces).length === 0) {
     const ids = Object.keys(data)
     ids.forEach((id, idx) => {
@@ -189,6 +204,7 @@ function animate() {
       const offsetX = (idx - (ids.length - 1) / 2) * GAP
       const group = buildFurnace()
       group.position.set(offsetX, 0, 0)
+      group.userData.furnaceId = id   // ★ 同步補上 id
       scene.add(group)
       const light = new THREE.PointLight(0xffffff, 3, 10, 2)
       light.position.set(offsetX, 1.5, 0)
@@ -214,17 +230,14 @@ function animate() {
     const diam = parseFloat(d?.diameter) || 0
     const body = parseFloat(d?.bodyLength) || 0
 
-    // 發光環顏色
     if (f.glowRing?.material) {
       const color = temp > 200 ? tempToColor(temp) : new THREE.Color(0x110300)
       f.glowRing.material.color.copy(color)
       f.glowRing.material.needsUpdate = true
     }
 
-    // PointLight 強度
     if (f.light) f.light.intensity = temp > 200 ? 3 + (temp/1400)*8 : 0.2
 
-    // 波紋動畫
     f.group.traverse(c => {
       if (c.name === "ripple1") { const s = 0.8+Math.sin(t*2)*0.2; c.scale.set(s,1,s); c.material.opacity = 0.3+Math.sin(t*2)*0.3 }
       if (c.name === "ripple2") { const s = 0.8+Math.sin(t*2+Math.PI)*0.2; c.scale.set(s,1,s); c.material.opacity = 0.2+Math.sin(t*2+Math.PI)*0.2 }
@@ -232,22 +245,15 @@ function animate() {
       if (c.name === "melt_pool" && c.material) c.material.emissiveIntensity = 0.7+Math.sin(t*2)*0.2
     })
 
-    // 晶棒
     if (f.crystalMesh) {
-      const sy = Math.max(0.01, Math.min(5.0, body/100))
-      const sx = Math.max(0.01, Math.min(1.5, diam/120))
-      // diameter 150mm → x scale 0.75 (爐子比例)
       const targetX = Math.max(0.15, Math.min(1.0, diam / 150))
-      // bodyLength → y scale，500mm = scale 5
       const targetY = Math.max(0.15, Math.min(4.0, body / 300))
       f.crystalMesh.scale.x += (targetX - f.crystalMesh.scale.x) * 0.08
       f.crystalMesh.scale.z  =  f.crystalMesh.scale.x
       f.crystalMesh.scale.y += (targetY - f.crystalMesh.scale.y) * 0.08
-      // 晶棒底部在熔湯(y=1.0)，中心往上
       f.crystalMesh.position.y = 1.0 + f.crystalMesh.scale.y * 0.85
     }
 
-    // 標籤
     const lb = labelSprites[id]
     if (lb) {
       drawLabel(lb.ctx, lb.canvas, id, false)
@@ -296,7 +302,6 @@ onMounted(() => {
   const grid = new THREE.GridHelper(30, 30, 0x1a2840, 0x1a2840)
   grid.position.y = 0.01; scene.add(grid)
 
-  // 粒子
   const pCount = 200
   const pGeo = new THREE.BufferGeometry()
   const pPos = new Float32Array(pCount * 3)
@@ -308,13 +313,13 @@ onMounted(() => {
   pGeo.setAttribute("position", new THREE.BufferAttribute(pPos, 3))
   scene.add(new THREE.Points(pGeo, new THREE.PointsMaterial({ color:0x334455, size:0.03, transparent:true, opacity:0.6 })))
 
-  // 若已有 furnaceIds 立即建模
   if (props.furnaceIds.length > 0) {
     props.furnaceIds.forEach((id, idx) => {
       const GAP = 5
       const offsetX = (idx - (props.furnaceIds.length-1)/2) * GAP
       const group = buildFurnace()
       group.position.set(offsetX, 0, 0)
+      group.userData.furnaceId = id   // ★
       scene.add(group)
       const light = new THREE.PointLight(0xffffff, 3, 10, 2)
       light.position.set(offsetX, 1.5, 0)
@@ -340,33 +345,10 @@ onMounted(() => {
     renderer.setSize(w, h)
   }
   window.addEventListener("resize", onResize)
-  // 強制用 furnaceIds 建立初始模型
-  if (props.furnaceIds.length > 0) {
-    props.furnaceIds.forEach((id, idx) => {
-      if (furnaces[id]) return
-      const GAP = 5
-      const offsetX = (idx - (props.furnaceIds.length - 1) / 2) * GAP
-      const group = buildFurnace()
-      group.position.set(offsetX, 0, 0)
-      scene.add(group)
-      const light = new THREE.PointLight(0xffffff, 3, 10, 2)
-      light.position.set(offsetX, 1.5, 0)
-      scene.add(light)
-      const { sprite, canvas, ctx } = makeLabel(id, false)
-      sprite.position.set(offsetX, 5.6, 0)
-      sprite.scale.set(2.2, 0.65, 1)
-      scene.add(sprite)
-      labelSprites[id] = { sprite, canvas, ctx }
-      let crystalMesh = null, glowRing = null
-      group.traverse(c => {
-        if (c.name === "crystal_ingot") crystalMesh = c
-        if (c.isMesh && c.name === "glow_ring") glowRing = c
-      })
-      if (!crystalMesh) console.warn("crystal_ingot not found for", id)
-      furnaces[id] = { group, crystalMesh, glowRing, light }
-    })
-  }
-  // 強制 resize 確保 canvas 填滿
+
+  // ★ 雙擊 listener（綁在 canvas 而不是 window,避免吃到 modal 內的雙擊)
+  renderer.domElement.addEventListener("dblclick", onDoubleClick)
+
   setTimeout(() => {
     const w = el.clientWidth, h = el.clientHeight
     camera.aspect = w / h
@@ -378,6 +360,7 @@ onMounted(() => {
   onUnmounted(() => {
     cancelAnimationFrame(animId)
     window.removeEventListener("resize", onResize)
+    renderer.domElement.removeEventListener("dblclick", onDoubleClick)
     controls.dispose(); renderer.dispose()
     if (el.contains(renderer.domElement)) el.removeChild(renderer.domElement)
   })

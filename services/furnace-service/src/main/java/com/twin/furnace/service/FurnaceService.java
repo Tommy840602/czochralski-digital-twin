@@ -48,7 +48,11 @@ public class FurnaceService {
         List<FurnaceMetrics> data;
         String actual = resolution;
         long hours = java.time.Duration.between(from, to).toHours();
-        if ("raw".equals(resolution) || hours < 3) { data=metricsRepo.findHistory(id,from,to,3600); actual="raw"; }
+        if ("raw".equals(resolution) || hours < 3) {
+            data = metricsRepo.findHistory(id, from, to, 3600);
+            java.util.Collections.reverse(data);
+            actual = "raw";
+        }
         else if ("1min".equals(resolution) || hours < 72) { data=metricsRepo.findHistory1Min(id,from,to); actual="1min"; }
         else { data=metricsRepo.findHistory1Hour(id,from,to); actual="1hour"; }
         log.debug("history furnace={} resolution={} rows={}", id, actual, data.size());

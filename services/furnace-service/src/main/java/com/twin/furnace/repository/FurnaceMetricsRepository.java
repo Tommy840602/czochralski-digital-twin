@@ -45,7 +45,7 @@ public interface FurnaceMetricsRepository extends JpaRepository<FurnaceMetrics, 
         SELECT * FROM furnace_metrics
         WHERE furnace_id = :furnaceId
           AND time BETWEEN :from AND :to
-        ORDER BY time ASC
+        ORDER BY time DESC
         LIMIT :limit
         """, nativeQuery = true)
     List<FurnaceMetrics> findHistory(
