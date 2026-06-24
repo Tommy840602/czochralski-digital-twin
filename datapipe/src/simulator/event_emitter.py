@@ -42,33 +42,41 @@ class EventEmitter:
         with self._lock:
             return self.interval / self.speed
 
-    def emit_all(self, rows: list):
-        log.info(f'開始模擬 爐={self.furnace_id}  共 {len(rows):,} 筆')
-        for i, row in enumerate(rows):
-            # 從 CSV 取得真實 furnace_id（可與 self.furnace_id 相同）
-            csv_furnace_id = get_furnace_id(row)
-            if csv_furnace_id != self.furnace_id:
-                log.warning(f'CSV PULLER={csv_furnace_id} 與 --furnace={self.furnace_id} 不符，'
-                            f'以 CSV 值為準')
+    def emit_all(self, rows: list, loop: bool = False):
+        total = len(rows)
+        log.info(f'開始模擬 爐={self.furnace_id}  共 {total:,} 筆'
+                 + ('（循環播放）' if loop else ''))
+        pass_num = 0
+        while True:
+            pass_num += 1
+            for i, row in enumerate(rows):
+                csv_furnace_id = get_furnace_id(row)
+                if csv_furnace_id != self.furnace_id:
+                    log.warning(f'CSV PULLER={csv_furnace_id} 與 --furnace={self.furnace_id} 不符，'
+                                f'以 CSV 值為準')
 
-            payload  = row_to_payload(row)
-            json_str = to_json(payload)
+                payload  = row_to_payload(row)
+                json_str = to_json(payload)
+                self.publisher.publish(self.topic_data, json_str, self.qos)
 
-            self.publisher.publish(self.topic_data, json_str, self.qos)
+                if (i + 1) % 100 == 0 or i == 0:
+                    log.info(f'[{i+1}/{total}] furnace={payload.get("furnaceId")} '
+                             f'mode={payload.get("operationMode")} '
+                             f'Ø={payload.get("diameter")} '
+                             f'T={payload.get("heaterTemp")}°C '
+                             f'({self.speed}x)')
 
-            if (i + 1) % 100 == 0 or i == 0:
-                log.info(f'[{i+1}/{len(rows)}] furnace={payload.get("furnaceId")} '
-                         f'mode={payload.get("operationMode")} '
-                         f'Ø={payload.get("diameter")} '
-                         f'T={payload.get("heaterTemp")}°C '
-                         f'({self.speed}x)')
+                # 只有「非循環」的最後一筆才發 CSV 播完告警，避免循環洗版
+                if i == total - 1 and not loop:
+                    self._send_completion_alarm(payload)
 
-            # 最後一筆且是 NG 爐（或爐子已完成）→ 發告警
-            if i == len(rows) - 1:
-                self._send_completion_alarm(payload)
+                # 每筆間隔（循環模式連最後一筆後也 sleep，再進下一輪）
+                if not (i == total - 1 and not loop):
+                    time.sleep(self._current_interval())
 
-            if i < len(rows) - 1:
-                time.sleep(self._current_interval())
+            if not loop:
+                break
+            log.info(f'爐 {self.furnace_id} 第 {pass_num} 輪播完，從頭重播')
 
         log.info(f'爐 {self.furnace_id} 模擬完畢')
 

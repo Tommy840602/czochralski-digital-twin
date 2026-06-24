@@ -4,7 +4,7 @@ import DashboardView from '@/views/DashboardView.vue'
 
 const routes = [
   { path: '/',        name: 'twin',    component: TwinView,    meta: { title: '數位孿生' } },
-  { path: '/dashboard', name: 'dashboard', component: DashboardView, meta: { title: '總覽' } },
+  { path: '/dashboard', name: 'dashboard', component: DashboardView, meta: { title: '儀表板' } },
   { path: '/:pathMatch(.*)*', redirect: '/' }
 ]
 
@@ -14,7 +14,7 @@ const router = createRouter({
 })
 
 router.beforeEach(to => {
-  document.title = `${to.meta.title ?? ''} — 長晶爐數位孿生`
+  document.title = `${to.meta.title ?? ''} — 長晶爐數位孿生系統`
 })
 
 export default router

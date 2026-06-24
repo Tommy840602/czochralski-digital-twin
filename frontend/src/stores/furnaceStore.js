@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import axios from 'axios'
+import api from '@/services/api'
 
 export const useFurnaceStore = defineStore('furnace', () => {
   const furnaces    = ref([])
@@ -18,7 +18,7 @@ export const useFurnaceStore = defineStore('furnace', () => {
   async function loadFurnaces() {
     loading.value = true
     try {
-      const { data } = await axios.get('/api/furnaces')
+      const { data } = await api.get(`/furnaces`)
       furnaces.value = data
       if (!selected.value && data.length > 0) selected.value = data[0].furnaceId
     } catch (e) {
@@ -47,7 +47,7 @@ export const useFurnaceStore = defineStore('furnace', () => {
   async function autoRegister(furnaceId) {
     if (furnaces.value.some(f => f.furnaceId === furnaceId)) return
     try {
-      await axios.post(`/api/furnaces/${furnaceId}/register`)
+      await api.post(`/furnaces/${furnaceId}/register`)
       await loadFurnaces()
     } catch (e) { console.warn('[furnaceStore] autoRegister failed:', e) }
   }

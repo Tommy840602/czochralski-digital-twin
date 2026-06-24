@@ -65,7 +65,7 @@ const metrics = [
   { key: 'grMean',        label: 'GR MEAN',      unit: 'mm/m', dec: 3, color: '#34d399' },
   { key: 'bodyLength',    label: 'BODY LEN',     unit: 'mm',   dec: 1, color: '#a78bfa' },
   { key: 'heaterPowerSv', label: 'HTR POWER',    unit: 'kW',   dec: 1, color: '#f59e0b' },
-  { key: 'seedLift',      label: 'SEED LIFT',    unit: '',     dec: 3, color: '#fb923c' },
+  { key: 'seedLift',      label: 'SEED LIFT',    unit: 'mm',   dec: 3, color: '#fb923c' },
 ]
 
 const live = computed(() => {

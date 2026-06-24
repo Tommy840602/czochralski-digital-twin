@@ -60,8 +60,11 @@ export function useFurnaceWebSocket() {
         client.subscribe('/topic/furnaces/all', msg => {
           try {
             const list = JSON.parse(msg.body)
+            console.log('[ws] all 收到', list.length, '台', list[0])   // ← 加這行
             store.updateAllLive(list)
-          } catch {}
+          } catch (e) {
+            console.error('[ws] all parse/update error', e)            // ← 別吞錯
+          }
         })
 
         // 2. 各爐子個別 topic

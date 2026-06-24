@@ -15,7 +15,7 @@
           <span class="nav-icon">⬡</span> 數位孿生
         </RouterLink>
         <RouterLink to="/dashboard" class="nav-link" active-class="nav-link--active">
-          <span class="nav-icon">◈</span> 總覽
+          <span class="nav-icon">◈</span> 儀表板
         </RouterLink>
       </nav>
 

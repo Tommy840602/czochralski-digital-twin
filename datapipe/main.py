@@ -7,6 +7,9 @@
   # 模擬所有設定檔中的爐子（批次啟動）
   python main.py --all
 
+  # CSV 播完後從頭循環播放（即時數據永不停）
+  python main.py --all --loop
+
   # 指定自訂間隔
   python main.py --furnace F7 --csv data/F7_all.csv --interval 5
 
@@ -94,7 +97,8 @@ def load_config(path: str = 'config/settings.yaml') -> dict:
 
 
 def run_single(furnace_id: str, csv_path: str, interval: float,
-               host: str, port: int, qos: int, api_port: int):
+               host: str, port: int, qos: int, api_port: int,
+               loop: bool = False):
     """執行單台爐子模擬"""
     rows = read_csv(csv_path)
     if not rows:
@@ -116,7 +120,7 @@ def run_single(furnace_id: str, csv_path: str, interval: float,
         _emitters[furnace_id] = emitter
 
     try:
-        emitter.emit_all(rows)
+        emitter.emit_all(rows, loop=loop)
     except KeyboardInterrupt:
         log.info(f'爐 {furnace_id} 中止')
     finally:
@@ -125,7 +129,7 @@ def run_single(furnace_id: str, csv_path: str, interval: float,
             _emitters.pop(furnace_id, None)
 
 
-def run_all(cfg: dict, host: str, port: int, interval: float):
+def run_all(cfg: dict, host: str, port: int, interval: float, loop: bool = False):
     """批次啟動設定檔中所有爐子（每台一個執行緒）"""
     furnaces = cfg.get('furnaces', [])
     if not furnaces:
@@ -140,7 +144,7 @@ def run_all(cfg: dict, host: str, port: int, interval: float):
         csv  = f.get('csv', f'data/{fid}_all.csv')
         t = threading.Thread(
             target=run_single,
-            args=(fid, csv, interval, host, port, qos, None),
+            args=(fid, csv, interval, host, port, qos, None, loop),
             name=f'furnace-{fid}',
             daemon=True
         )
@@ -151,7 +155,8 @@ def run_all(cfg: dict, host: str, port: int, interval: float):
         t.start()
         time.sleep(0.3)  # 稍微錯開，避免同時搶 MQTT 連線
 
-    log.info(f'所有爐子已啟動：{[f["id"] for f in furnaces]}')
+    log.info(f'所有爐子已啟動：{[f["id"] for f in furnaces]}'
+             + ('（循環播放）' if loop else ''))
 
     try:
         for t in threads:
@@ -171,6 +176,8 @@ def main():
     parser.add_argument('--host',     help='MQTT broker host')
     parser.add_argument('--port',     type=int,   help='MQTT broker port')
     parser.add_argument('--api-port', type=int,   default=8099)
+    parser.add_argument('--loop',     action='store_true',
+                        help='CSV 播完後從頭循環播放（即時數據永不停）')
     args = parser.parse_args()
 
     cfg      = load_config()
@@ -181,6 +188,7 @@ def main():
     port     = args.port     or mqtt_cfg.get('port',             1883)
     qos      = mqtt_cfg.get('qos', 1)
     interval = args.interval or sim_cfg.get('interval_seconds',  10)
+    loop     = args.loop     or sim_cfg.get('loop',              False)
 
     # 啟動 Speed API（背景執行緒）
     api_thread = threading.Thread(
@@ -191,13 +199,14 @@ def main():
     api_thread.start()
 
     if args.all:
-        run_all(cfg, host, port, interval)
+        run_all(cfg, host, port, interval, loop)
     else:
         if not args.furnace:
             parser.error('請指定 --furnace 或 --all')
         if not args.csv:
             parser.error('--furnace 模式需指定 --csv')
-        run_single(args.furnace, args.csv, interval, host, port, qos, args.api_port)
+        run_single(args.furnace, args.csv, interval, host, port, qos,
+                   args.api_port, loop)
 
 
 if __name__ == '__main__':

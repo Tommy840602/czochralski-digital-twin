@@ -7,7 +7,9 @@ public class FurnaceLatestDto {
     private String furnaceId, displayName, status, ingotNo, operationMode;
     private OffsetDateTime lastLogTime;
     private Double diameter, diameterTarget, heaterTemp, heaterPowerSv,
-                   grMean, bodyLength, seedLift, residualWeight;
+            grMean, bodyLength, seedLift, residualWeight;
+    private Double crMean, magnetPv, argonFlowRate, lowerChamberPress,
+            temp2, temp4, temp5;
 
     public static FurnaceLatestDto fromRedis(String id, Map<Object,Object> m) {
         FurnaceLatestDto d = new FurnaceLatestDto();
@@ -17,6 +19,10 @@ public class FurnaceLatestDto {
         d.heaterTemp=dbl(m,"heaterTemp"); d.heaterPowerSv=dbl(m,"heaterPowerSv");
         d.grMean=dbl(m,"grMean"); d.bodyLength=dbl(m,"bodyLength");
         d.seedLift=dbl(m,"seedLift"); d.residualWeight=dbl(m,"residualWeight");
+        // ── 新增 ──
+        d.crMean=dbl(m,"crMean"); d.magnetPv=dbl(m,"magnetPv");
+        d.argonFlowRate=dbl(m,"argonFlowRate"); d.lowerChamberPress=dbl(m,"lowerChamberPress");
+        d.temp2=dbl(m,"temp2"); d.temp4=dbl(m,"temp4"); d.temp5=dbl(m,"temp5");
         return d;
     }
     public static FurnaceLatestDto fromMetrics(FurnaceMetrics m, FurnaceRegistry r) {
@@ -30,6 +36,10 @@ public class FurnaceLatestDto {
         d.heaterPowerSv=m.getHeaterPowerSv(); d.grMean=m.getGrMean();
         d.bodyLength=m.getBodyLength(); d.seedLift=m.getSeedLift();
         d.residualWeight=m.getResidualWeight();
+        // ── 新增 ──
+        d.crMean=m.getCrMean(); d.magnetPv=m.getMagnetPv();
+        d.argonFlowRate=m.getArgonFlowRate(); d.lowerChamberPress=m.getLowerChamberPress();
+        d.temp2=m.getTemp2(); d.temp4=m.getTemp4(); d.temp5=m.getTemp5();
         return d;
     }
     public static FurnaceLatestDto offline(String id) {
@@ -53,4 +63,12 @@ public class FurnaceLatestDto {
     public Double getBodyLength()         { return bodyLength; }
     public Double getSeedLift()           { return seedLift; }
     public Double getResidualWeight()     { return residualWeight; }
+    // ── 新增 getter ──
+    public Double getCrMean()             { return crMean; }
+    public Double getMagnetPv()           { return magnetPv; }
+    public Double getArgonFlowRate()      { return argonFlowRate; }
+    public Double getLowerChamberPress()  { return lowerChamberPress; }
+    public Double getTemp2()              { return temp2; }
+    public Double getTemp4()              { return temp4; }
+    public Double getTemp5()              { return temp5; }
 }

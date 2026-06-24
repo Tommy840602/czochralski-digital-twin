@@ -1,6 +1,5 @@
 server:
   port: 8085
-
 spring:
   application:
     name: api-gateway
@@ -10,26 +9,32 @@ spring:
         - id: furnace-service
           uri: lb://furnace-service
           predicates:
-            - Path=/furnaces/**
-
+            - Path=/api/furnaces/**
+          filters:
+            - StripPrefix=1
         - id: alarm-service
           uri: lb://alarm-service
           predicates:
-            - Path=/alarms/**
-
+            - Path=/api/alarms/**
+          filters:
+            - StripPrefix=1
+        - id: furnace-ws
+          uri: lb:ws://furnace-service
+          predicates:
+            - Path=/ws/**
         - id: twin-state-service
           uri: lb://twin-state-service
           predicates:
             - Path=/api/twin/**
           filters:
             - StripPrefix=1
-
       globalcors:
         cors-configurations:
           '[/**]':
             allowedOrigins:
               - "http://localhost:5173"
               - "http://localhost:3001"
+              - "http://localhost"
             allowedMethods:
               - GET
               - POST
@@ -38,13 +43,12 @@ spring:
               - OPTIONS
             allowedHeaders: "*"
             allowCredentials: true
-
       default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_UNIQUE
         - name: CircuitBreaker
           args:
             name: defaultCB
             fallbackUri: forward:/fallback
-
 resilience4j:
   timelimiter:
     instances:
@@ -56,18 +60,15 @@ resilience4j:
         slidingWindowSize: 10
         failureRateThreshold: 50
         waitDurationInOpenState: 5s
-
 eureka:
   client:
     service-url:
       defaultZone: http://localhost:8761/eureka/
-
 management:
   endpoints:
     web:
       exposure:
         include: health,info,prometheus,gateway
-
 logging:
   level:
     org.springframework.cloud.gateway: DEBUG

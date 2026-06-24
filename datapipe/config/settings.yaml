@@ -42,6 +42,7 @@ furnaces:
   #   csv: "data/FB_all.csv"
 
 simulator:
+  loop: true
   interval_seconds: 10      # 每筆資料間隔秒數（模擬即時）
   csv_encoding: utf-8-sig   # BOM 安全
   speed: 1                  # 倍速（1x=正常, 10x=加速）
