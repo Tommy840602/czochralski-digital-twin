@@ -1,5 +1,6 @@
 package com.twin.flink.sink;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.twin.flink.model.FurnaceReading;
 import org.apache.flink.api.connector.sink2.Sink;
 import org.apache.flink.api.connector.sink2.SinkWriter;
@@ -9,14 +10,14 @@ import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.JedisPoolConfig;
 
 import java.io.IOException;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
  * RedisSink — 即時爐況寫入（彈性多爐版）
- * Key: furnace:{furnaceId}   → 動態，支援任意爐子
- * TTL: 60 秒（超過則視為離線）
- * 儲存核心感測器欄位供 WebSocket 即時推送使用
+ * Key: furnace:{furnaceId}
+ * TTL: 300 秒
+ * 以反射(Jackson)一次寫入 FurnaceReading 所有欄位 → 新增感測器零改動。
  */
 public class RedisSink implements Sink<FurnaceReading> {
 
@@ -35,6 +36,7 @@ public class RedisSink implements Sink<FurnaceReading> {
 
     static class RedisWriter implements SinkWriter<FurnaceReading> {
 
+        private static final ObjectMapper M = new ObjectMapper();
         private final JedisPool pool;
 
         RedisWriter(String host, int port) {
@@ -48,43 +50,27 @@ public class RedisSink implements Sink<FurnaceReading> {
         public void write(FurnaceReading r, Context ctx) throws IOException {
             if (r.getFurnaceId() == null) return;
             try (Jedis jedis = pool.getResource()) {
-                String key = "furnace:" + r.getFurnaceId();   // 動態 key
+                String key = "furnace:" + r.getFurnaceId();
 
-                Map<String, String> fields = new HashMap<>();
-                // 識別
-                fields.put("furnaceId",       safe(r.getFurnaceId()));
-                fields.put("ingotNo",         safe(r.getIngotNo()));
-                fields.put("operationMode",   safe(r.getOperationMode()));
-                fields.put("logTime",         safe(r.getLogTime()));
-                fields.put("updatedAt",       safe(r.getReceivedAt()));
+                // 反射：FurnaceReading 全欄位 → Map（key = @JsonProperty 名）
+                @SuppressWarnings("unchecked")
+                Map<String, Object> raw = M.convertValue(r, Map.class);
 
-                // 核心感測器（前端即時顯示用）
-                fields.put("diameter",        safeD(r.getDiameter()));
-                fields.put("diameterTarget",  safeD(r.getDiameterTarget()));
-                fields.put("heaterTemp",      safeD(r.getHeaterTemp()));
-                fields.put("heaterPowerSv",   safeD(r.getHeaterPowerSv()));
-                fields.put("grMean",          safeD(r.getGrMean()));
-                fields.put("bodyLength",      safeD(r.getBodyLength()));
-                fields.put("seedLift",        safeD(r.getSeedLift()));
-                fields.put("residualWeight",  safeD(r.getResidualWeight()));
-                fields.put("magnetPv",        safeD(r.getMagnetPv()));
-                fields.put("argonFlowRate",   safeD(r.getArgonFlowRate()));
-                fields.put("lowerChamberPress", safeD(r.getLowerChamberPress()));
-                fields.put("crMean",          safeD(r.getCrMean()));
-                fields.put("temp2",           safeD(r.getTemp2()));
-                fields.put("temp4",           safeD(r.getTemp4()));
-                fields.put("temp5",           safeD(r.getTemp5()));
+                Map<String, String> fields = new LinkedHashMap<>();
+                for (Map.Entry<String, Object> e : raw.entrySet()) {
+                    Object v = e.getValue();
+                    fields.put(e.getKey(), v == null ? "" : String.valueOf(v));
+                }
+                // 前端用 updatedAt 判斷離線；以 receivedAt 當別名
+                fields.put("updatedAt", r.getReceivedAt() != null ? r.getReceivedAt() : "");
 
                 jedis.hset(key, fields);
-                jedis.expire(key, 300);  // 300s TTL
+                jedis.expire(key, 300);
             } catch (Exception e) {
                 throw new IOException("Redis 寫入失敗 furnace=" + r.getFurnaceId()
                         + ": " + e.getMessage(), e);
             }
         }
-
-        private String safe(String v)  { return v != null ? v : ""; }
-        private String safeD(Double v) { return v != null ? String.valueOf(v) : ""; }
 
         @Override public void flush(boolean endOfInput) {}
         @Override public void close() { pool.close(); }

@@ -2,14 +2,16 @@ package com.twin.furnace.dto;
 import com.twin.furnace.model.FurnaceMetrics;
 import com.twin.furnace.model.FurnaceRegistry;
 import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
 import java.util.Map;
 public class FurnaceLatestDto {
     private String furnaceId, displayName, status, ingotNo, operationMode;
     private OffsetDateTime lastLogTime;
+    // 顯式核心欄位（向後相容：TwinView / RealtimeTrends / SectionScene 直接讀）
     private Double diameter, diameterTarget, heaterTemp, heaterPowerSv,
             grMean, bodyLength, seedLift, residualWeight;
-    private Double crMean, magnetPv, argonFlowRate, lowerChamberPress,
-            temp2, temp4, temp5;
+    // 通用：所有 numeric 欄位整包（Dashboard 下拉/全欄顯示用）。新增感測器零改動。
+    private Map<String, Double> metrics = new LinkedHashMap<>();
 
     public static FurnaceLatestDto fromRedis(String id, Map<Object,Object> m) {
         FurnaceLatestDto d = new FurnaceLatestDto();
@@ -19,10 +21,11 @@ public class FurnaceLatestDto {
         d.heaterTemp=dbl(m,"heaterTemp"); d.heaterPowerSv=dbl(m,"heaterPowerSv");
         d.grMean=dbl(m,"grMean"); d.bodyLength=dbl(m,"bodyLength");
         d.seedLift=dbl(m,"seedLift"); d.residualWeight=dbl(m,"residualWeight");
-        // ── 新增 ──
-        d.crMean=dbl(m,"crMean"); d.magnetPv=dbl(m,"magnetPv");
-        d.argonFlowRate=dbl(m,"argonFlowRate"); d.lowerChamberPress=dbl(m,"lowerChamberPress");
-        d.temp2=dbl(m,"temp2"); d.temp4=dbl(m,"temp4"); d.temp5=dbl(m,"temp5");
+        // 通用 metrics：把 hash 內所有可轉 double 的欄位整包帶上
+        for (Map.Entry<Object,Object> e : m.entrySet()) {
+            Double v = parseD(e.getValue());
+            if (v != null) d.metrics.put(String.valueOf(e.getKey()), v);
+        }
         return d;
     }
     public static FurnaceLatestDto fromMetrics(FurnaceMetrics m, FurnaceRegistry r) {
@@ -36,10 +39,11 @@ public class FurnaceLatestDto {
         d.heaterPowerSv=m.getHeaterPowerSv(); d.grMean=m.getGrMean();
         d.bodyLength=m.getBodyLength(); d.seedLift=m.getSeedLift();
         d.residualWeight=m.getResidualWeight();
-        // ── 新增 ──
-        d.crMean=m.getCrMean(); d.magnetPv=m.getMagnetPv();
-        d.argonFlowRate=m.getArgonFlowRate(); d.lowerChamberPress=m.getLowerChamberPress();
-        d.temp2=m.getTemp2(); d.temp4=m.getTemp4(); d.temp5=m.getTemp5();
+        // DB fallback：顯式欄位也塞進 metrics，至少下拉有基本欄位
+        putM(d.metrics,"diameter",m.getDiameter());       putM(d.metrics,"diameterTarget",m.getDiameterTarget());
+        putM(d.metrics,"heaterTemp",m.getHeaterTemp());    putM(d.metrics,"heaterPowerSv",m.getHeaterPowerSv());
+        putM(d.metrics,"grMean",m.getGrMean());            putM(d.metrics,"bodyLength",m.getBodyLength());
+        putM(d.metrics,"seedLift",m.getSeedLift());        putM(d.metrics,"residualWeight",m.getResidualWeight());
         return d;
     }
     public static FurnaceLatestDto offline(String id) {
@@ -48,7 +52,14 @@ public class FurnaceLatestDto {
         return d;
     }
     private static String str(Map<Object,Object> m,String k){Object v=m.get(k);return v!=null?v.toString():null;}
-    private static Double dbl(Map<Object,Object> m,String k){try{return Double.parseDouble(m.get(k).toString());}catch(Exception e){return null;}}
+    private static Double dbl(Map<Object,Object> m,String k){return parseD(m.get(k));}
+    private static Double parseD(Object v){
+        if(v==null) return null;
+        try { String s=v.toString().trim(); if(s.isEmpty()) return null; return Double.parseDouble(s); }
+        catch(Exception e){ return null; }
+    }
+    private static void putM(Map<String,Double> map,String k,Double v){ if(v!=null) map.put(k,v); }
+
     public String getFurnaceId()          { return furnaceId; }
     public String getDisplayName()        { return displayName; }
     public String getStatus()             { return status; }
@@ -63,12 +74,5 @@ public class FurnaceLatestDto {
     public Double getBodyLength()         { return bodyLength; }
     public Double getSeedLift()           { return seedLift; }
     public Double getResidualWeight()     { return residualWeight; }
-    // ── 新增 getter ──
-    public Double getCrMean()             { return crMean; }
-    public Double getMagnetPv()           { return magnetPv; }
-    public Double getArgonFlowRate()      { return argonFlowRate; }
-    public Double getLowerChamberPress()  { return lowerChamberPress; }
-    public Double getTemp2()              { return temp2; }
-    public Double getTemp4()              { return temp4; }
-    public Double getTemp5()              { return temp5; }
+    public Map<String, Double> getMetrics() { return metrics; }
 }

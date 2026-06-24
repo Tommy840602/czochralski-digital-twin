@@ -47,19 +47,19 @@
             <div class="kpi" v-for="k in PRIMARY" :key="k.key">
               <span class="kpi-lbl mono">{{ k.label }}</span>
               <span class="kpi-val mono" :style="{ color: k.color }">
-                {{ fmt(live(f.furnaceId)?.[k.key], k.dp) }}<i v-if="k.unit">{{ k.unit }}</i>
+                {{ fmt(mval(f.furnaceId, k.key), k.dp) }}<i v-if="k.unit">{{ k.unit }}</i>
               </span>
             </div>
           </div>
 
-          <!-- 可選即時圖 -->
+          <!-- 可選即時圖（下拉全 38 欄）-->
           <div class="spark-block">
             <div class="spark-head">
               <select class="spark-sel mono" v-model="sparkSel[f.furnaceId]" @click.stop>
                 <option v-for="m in METRICS" :key="m.key" :value="m.key">{{ m.label }}</option>
               </select>
               <span class="spark-now mono" :style="{ color: metricColor(curKey(f.furnaceId)) }">
-                {{ fmt(live(f.furnaceId)?.[curKey(f.furnaceId)], metricDp(curKey(f.furnaceId))) }}
+                {{ fmt(mval(f.furnaceId, curKey(f.furnaceId)), metricDp(curKey(f.furnaceId))) }}
                 <i>{{ metricUnit(curKey(f.furnaceId)) }}</i>
               </span>
             </div>
@@ -110,24 +110,47 @@ const router = useRouter()
 const STALE_MS = 8000
 const MAX_PTS  = 40
 
-// ── 欄位登錄表（= liveData 可用欄位；前 8 個為主力 tile）──────
+// ── 欄位登錄表（前 8 = 主力 tile；其餘下拉可選，全部來自 metrics map）──
 const METRICS = [
-  { key: 'heaterTemp',        label: 'TEMP',     unit: '°C',   dp: 1, color: '#f87171' },
-  { key: 'diameter',          label: 'Ø',        unit: 'mm',   dp: 2, color: '#38bdf8' },
-  { key: 'diameterTarget',    label: 'Ø TGT',    unit: 'mm',   dp: 2, color: '#7dd3fc' },
-  { key: 'grMean',            label: 'GR',       unit: 'mm/m', dp: 3, color: '#34d399' },
-  { key: 'bodyLength',        label: 'BODY',     unit: 'mm',   dp: 1, color: '#f59e0b' },
-  { key: 'heaterPowerSv',     label: 'PWR',      unit: 'kW',   dp: 1, color: '#fb923c' },
-  { key: 'seedLift',          label: 'SEED',     unit: '',     dp: 2, color: '#a78bfa' },
-  { key: 'residualWeight',    label: 'RES WT',   unit: 'kg',   dp: 1, color: '#e879f9' },
-  // ── 以下為下拉可選的「其他」欄位（需 DTO 已開放）──
-  { key: 'crMean',            label: 'CR',       unit: 'rpm',  dp: 2, color: '#4ade80' },
-  { key: 'magnetPv',          label: 'MAGNET',   unit: '',     dp: 2, color: '#22d3ee' },
-  { key: 'argonFlowRate',     label: 'ARGON',    unit: 'L/m',  dp: 1, color: '#60a5fa' },
-  { key: 'lowerChamberPress', label: 'L.PRESS',  unit: '',     dp: 2, color: '#94a3b8' },
-  { key: 'temp2',             label: 'TEMP2',    unit: '°C',   dp: 1, color: '#fca5a5' },
-  { key: 'temp4',             label: 'TEMP4',    unit: '°C',   dp: 1, color: '#fca5a5' },
-  { key: 'temp5',             label: 'TEMP5',    unit: '°C',   dp: 1, color: '#fca5a5' },
+  { key: 'heaterTemp',          label: 'TEMP',     unit: '°C',   dp: 1, color: '#f87171' },
+  { key: 'diameter',            label: 'Ø',        unit: 'mm',   dp: 2, color: '#38bdf8' },
+  { key: 'diameterTarget',      label: 'Ø TGT',    unit: 'mm',   dp: 2, color: '#7dd3fc' },
+  { key: 'grMean',              label: 'GR',       unit: 'mm/m', dp: 3, color: '#34d399' },
+  { key: 'bodyLength',          label: 'BODY',     unit: 'mm',   dp: 1, color: '#f59e0b' },
+  { key: 'heaterPowerSv',       label: 'PWR',      unit: 'kW',   dp: 1, color: '#fb923c' },
+  { key: 'seedLift',            label: 'SEED',     unit: '',     dp: 2, color: '#a78bfa' },
+  { key: 'residualWeight',      label: 'RES WT',   unit: 'kg',   dp: 1, color: '#e879f9' },
+  // ── 以下全部從 metrics map 取 ──
+  { key: 'dMean',               label: 'D MEAN',   unit: 'mm',   dp: 2, color: '#60a5fa' },
+  { key: 'heaterTempTarget',    label: 'TEMP TGT', unit: '°C',   dp: 1, color: '#fca5a5' },
+  { key: 'htMean',              label: 'HT MEAN',  unit: '°C',   dp: 1, color: '#fca5a5' },
+  { key: 'temp2',               label: 'TEMP2',    unit: '°C',   dp: 1, color: '#fca5a5' },
+  { key: 'temp4',               label: 'TEMP4',    unit: '°C',   dp: 1, color: '#fca5a5' },
+  { key: 'temp5',               label: 'TEMP5',    unit: '°C',   dp: 1, color: '#fca5a5' },
+  { key: 'temp9',               label: 'TEMP9',    unit: '°C',   dp: 1, color: '#fca5a5' },
+  { key: 'temp29',              label: 'TEMP29',   unit: '°C',   dp: 1, color: '#fca5a5' },
+  { key: 'neckLengthAccum',     label: 'NECK',     unit: 'mm',   dp: 1, color: '#c4b5fd' },
+  { key: 'seedLiftSp',          label: 'SEED SP',  unit: '',     dp: 2, color: '#c4b5fd' },
+  { key: 'seedLiftTarget',      label: 'SEED TGT', unit: '',     dp: 2, color: '#c4b5fd' },
+  { key: 'seedRotationSp',      label: 'SEED ROT', unit: 'rpm',  dp: 2, color: '#c4b5fd' },
+  { key: 'crucibleRotationSp',  label: 'CRU ROT',  unit: 'rpm',  dp: 2, color: '#4ade80' },
+  { key: 'crMean',              label: 'CR',       unit: 'rpm',  dp: 2, color: '#4ade80' },
+  { key: 'crucibleLift',        label: 'CRU LIFT', unit: 'mm',   dp: 2, color: '#4ade80' },
+  { key: 'crucibleLiftRatio',   label: 'CRU R',    unit: '',     dp: 3, color: '#4ade80' },
+  { key: 'cruciblePosition',    label: 'CRU POS',  unit: 'mm',   dp: 2, color: '#4ade80' },
+  { key: 'cruciblePosCalibrated', label: 'CRU CAL', unit: 'mm',  dp: 2, color: '#4ade80' },
+  { key: 'ctpflPul',            label: 'CTPFL',    unit: '',     dp: 2, color: '#94a3b8' },
+  { key: 'magnetPv',            label: 'MAGNET',   unit: '',     dp: 2, color: '#22d3ee' },
+  { key: 'argonFlowRate',       label: 'ARGON',    unit: 'L/m',  dp: 1, color: '#60a5fa' },
+  { key: 'lowerChamberPress',   label: 'L.PRESS',  unit: '',     dp: 2, color: '#94a3b8' },
+  { key: 'lowerChamberPressSp', label: 'L.P SP',   unit: '',     dp: 2, color: '#94a3b8' },
+  { key: 'throValveOpen',       label: 'THRO V',   unit: '%',    dp: 1, color: '#94a3b8' },
+  { key: 'bpMean',              label: 'BP MEAN',  unit: '',     dp: 2, color: '#94a3b8' },
+  { key: 'bpu60mean',           label: 'BPU60',    unit: '',     dp: 2, color: '#94a3b8' },
+  { key: 'btplBpul1',           label: 'BTPL UL',  unit: '',     dp: 2, color: '#94a3b8' },
+  { key: 'btplBpll1',           label: 'BTPL LL',  unit: '',     dp: 2, color: '#94a3b8' },
+  { key: 'pidslDdmean',         label: 'PID DD',   unit: '',     dp: 3, color: '#94a3b8' },
+  { key: 'pidslTemp1',          label: 'PID T1',   unit: '°C',   dp: 1, color: '#94a3b8' },
 ]
 const PRIMARY     = METRICS.slice(0, 8)
 const METRIC_KEYS = METRICS.map(m => m.key)
@@ -146,13 +169,23 @@ const curKey   = id => sparkSel[id] ?? DEFAULT_KEY
 const buffers = {}
 const tick    = ref(0)
 
+// 取值：優先 metrics map，fallback 顯式欄位
+function mval(id, key) {
+  const d = (tick.value, store.liveData[id])
+  if (!d) return null
+  const v = d.metrics?.[key] ?? d[key]
+  if (v == null) return null
+  return typeof v === 'number' ? v : parseFloat(v)
+}
+
 watch(() => store.liveData, (map) => {
   for (const id in map) {
-    if (!(id in sparkSel)) sparkSel[id] = DEFAULT_KEY        // 補預設
+    if (!(id in sparkSel)) sparkSel[id] = DEFAULT_KEY
     const d = map[id]
     if (!d) continue
     for (const key of METRIC_KEYS) {
-      const v = d[key]
+      const raw = d.metrics?.[key] ?? d[key]
+      const v = typeof raw === 'number' ? raw : (raw != null ? parseFloat(raw) : NaN)
       if (typeof v === 'number' && isFinite(v)) {
         const bk = id + '::' + key
         ;(buffers[bk] ??= []).push(v)
@@ -282,6 +315,7 @@ onUnmounted(() => clearInterval(timer))
 .spark-sel {
   background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
   color: var(--text-0); padding: 3px 6px; font-size: 11px; outline: none; cursor: pointer;
+  max-width: 130px;
 }
 .spark-sel:focus { border-color: var(--border-hi); }
 .spark-now { font-size: 14px; font-weight: 600; }
