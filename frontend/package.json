@@ -22,6 +22,7 @@
     "three": "^0.184.0",
     "vue": "beta",
     "vue-chartjs": "^5.3.3",
+    "vue-echarts": "^8.0.1",
     "vue-router": "^5.0.4"
   },
   "devDependencies": {
