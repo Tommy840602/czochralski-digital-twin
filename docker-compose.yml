@@ -115,8 +115,9 @@ services:
       test: ["CMD-SHELL", "nc -z localhost 9093 || exit 1"]
       interval: 15s
       timeout: 10s
-      retries: 10
-      start_period: 30s
+      retries: 20
+      start_period: 200s
+    stop_grace_period: 30s
 
   # ─────────────────────────────────────────
   # 4. KAFKA SCHEMA REGISTRY
@@ -501,6 +502,12 @@ services:
         condition: service_healthy
     networks:
       - twin-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8888/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 90s
 
   iot-gateway:
     build: ./services/iot-gateway
@@ -508,12 +515,15 @@ services:
     ports:
       - "8090:8090"
     environment:
+      - SPRING_PROFILES_ACTIVE=docker
       - SPRING_CONFIG_IMPORT=optional:configserver:http://twin-config:8888
       - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://twin-eureka:8761/eureka/
       - SPRING_MQTT_BROKER_URL=tcp://twin-mosquitto:1883
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=twin-kafka:9093
     depends_on:
       eureka-server:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
     networks:
       - twin-net
@@ -524,17 +534,35 @@ services:
     ports:
       - "8091:8091"
     environment:
+      - SPRING_PROFILES_ACTIVE=docker
       - SPRING_CONFIG_IMPORT=optional:configserver:http://twin-config:8888
-      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://twin-eureka:8761/eureka/
-      - SPRING_DATA_REDIS_HOST=twin-redis
       - SPRING_DATASOURCE_URL=jdbc:postgresql://twin-timescaledb:5432/furnace_db
       - SPRING_DATASOURCE_USERNAME=twin
       - SPRING_DATASOURCE_PASSWORD=twin_secret
+      - SPRING_DATA_REDIS_HOST=twin-redis
+      - SPRING_DATA_REDIS_PORT=6379
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=twin-kafka:9093
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://twin-eureka:8761/eureka/
+      - EUREKA_INSTANCE_HOSTNAME=twin-furnace-service
+      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=false
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
     depends_on:
       eureka-server:
         condition: service_healthy
+      kafka:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - twin-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8091/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 200s
 
   alarm-service:
     build: ./services/alarm-service
@@ -542,11 +570,14 @@ services:
     ports:
       - "8092:8092"
     environment:
+      - SPRING_PROFILES_ACTIVE=docker
       - SPRING_CONFIG_IMPORT=optional:configserver:http://twin-config:8888
       - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://twin-eureka:8761/eureka/
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=twin-kafka:9093
     depends_on:
       eureka-server:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
     networks:
       - twin-net
@@ -557,6 +588,7 @@ services:
     ports:
       - "8085:8085"
     environment:
+      - SPRING_PROFILES_ACTIVE=docker
       - SPRING_CONFIG_IMPORT=optional:configserver:http://twin-config:8888
       - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://twin-eureka:8761/eureka/
     depends_on:
@@ -564,6 +596,12 @@ services:
         condition: service_healthy
     networks:
       - twin-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8085/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
 
   frontend:
     build: frontend
@@ -571,8 +609,10 @@ services:
     ports:
       - "80:80"
     depends_on:
-      - api-gateway
-      - furnace-service
+      api-gateway:
+        condition: service_healthy
+      furnace-service:
+        condition: service_healthy
     networks:
       - twin-net
 

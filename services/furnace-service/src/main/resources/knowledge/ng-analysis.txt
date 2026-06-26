@@ -1,0 +1,685 @@
+﻿Body/Neck/Crown NG分析注意事項_260610_01（加入無文字上傳預設分析、Neck跳脫/回插檢查、Crown CCD量測連續性檢查）
+
+0. 無文字上傳檔案的預設分析規則
+- 若使用者同一批上傳中，只提供本NG分析注意事項文件，並同時提供一個或多個CSV / TXT / Excel / ZIP紀錄檔，但沒有輸入任何文字說明，預設解讀為：「請依照本NG分析注意事項，分析其他上傳的長晶紀錄檔。」
+- 此時不可等待使用者再次下指令；需直接讀取最新NG分析注意事項，並依本文件流程分析其他上傳檔案。
+- 若同時上傳ZIP，需先解壓並檢查內含檔案；若ZIP內含多個CSV，需視為同批待分析紀錄，依全紀錄流程、同爐多次引晶與晶棒支次規則進行分析。
+- 若同批上傳中有多份NG分析注意事項，需優先使用檔名或版本號最新者；若版本無法判斷，需先提示版本衝突，不可混用多份規則。
+- 若同批上傳中除了紀錄檔外也包含腳本檔，且使用者沒有文字說明，仍以NG紀錄分析為主；腳本檔僅作為輔助判斷，不預設進行腳本修改或進版。
+- 若檔案中缺少必要欄位，或CSV / ZIP無法讀取，需直接回報缺少欄位或讀取失敗原因。
+
+1. 原始資料處理原則
+- 合併多筆紀錄時，原始紀錄必須保留在各自獨立工作表，不刪除、不修改原始內容。
+- 每筆紀錄可依紀錄起始日期時間命名，方便後續追加OK/NG資料。
+- 若NG發生在某一Body長度，例如BL368，則該筆NG的0~168mm可視為OK參考區間；NG原因分析主窗可先看NG點前100~200mm，也就是BL168~368。
+- 若資料中出現RW、CP、Power limit、SLT、DTT、Mode等明顯不連續，需先標記，不可直接當成連續製程推論。
+- 同一份CSV若包含多次引晶、多支晶棒或多次NG，必須先依Operation Mode、時間、BL/NLA/RW重置與MELT BACK/TAKE OUT/RE CHARGE等工序切分成獨立製程段，並同步區分「引晶次」與「晶棒支次」；每次NG需分開分析，不可混成單一事件。
+- 若資料中出現參數垂直變化、長時間固定不變、Crucible Lift SP、CR、CP、BPUL、BPLL等異常階躍，需列為疑似手動介入或資料有效性檢查項目，並列出時間、長度、被介入參數與可能影響。
+- Neck / Crown / Shoulder / Body任一階段若出現Dia或temp29本身短時間忽大忽小、階躍跳變、鋸齒狀上下跳動、長時間固定後突然跳變，需優先列為CCD偵測 / 照片判讀 / 量測有效性異常檢查項目，不可直接當成真實晶體直徑變化。
+- 判斷CCD或直徑量測異常時，不可只看temp29-Dia差值；必須分別檢查Dia(t)本身是否連續，以及temp29(t)本身是否連續。若Dia或temp29自身不連續，PIDSL_temp1與PIDSL_dDmean可能是被假訊號放大，不可直接用來判斷偏冷、展肩過快、PIDSL或CTPFL控制異常。
+- 若使用者詢問「變形」且Body紀錄中Crucible Lift SP長時間固定不變、階躍後固定、或明顯不跟隨CLtarget / crucible lift ratio變化，需優先視為疑似CLSP被切手動；此時不可只用GR_mean-SLT或BPUL/Power補償作為主因，必須先回到Gap/CLSP/CLtarget/crucible lift ratio判讀。
+- Body階段若BL>50後Dia出現接近垂直的跳變，尤其單次差值>2，並伴隨PIDSL_temp1瞬間大幅震盪，需優先視為資料有效性異常檢查項目，先確認是否有人員手動介入CCD校正，不可直接當成正常Dia變化或PIDSL/BTPL控制結果。
+- SOP名稱第5~7碼代表Charge重量，需先由SOP解析Charge再判斷RW後段門檻；例如SOP中第5~7碼為「050」代表Charge=50kg，則BTPL內常用的RW後段門檻Charge/2000應為25。不可未確認Charge就用85kg或其他預設值模擬。
+- 模擬BTPL或判斷RW前後段時，必須列出SOP解析出的Charge、Charge/2000門檻，以及各代表BL/RW是否已進入RW後段，避免誤判delP補/扣BPUL邏輯。
+
+1-1. 全紀錄分析總流程
+- 進行CSV或長晶紀錄分析時，不可直接跳到單一NG點判斷；必須先從整份紀錄的時間軸開始整理。
+- 回覆開頭的全紀錄總覽只需描述該紀錄涵蓋的「總工時」，例如「本紀錄總工時約127.3小時」。開始時間與結束時間可作為內部切分依據，除非使用者要求，否則不需在總覽段落展開列出。
+- 總覽段落後，需依Operation Mode、時間順序、BL/NLA/RW重置、TAIL、TAKE OUT、MELT BACK、RE CHARGE、ADD CHARGE、PULL OUT、CHANGE SEED、REDIP等訊號，先切分「第幾次引晶」與「第幾支晶棒」。
+- 分析時必須先區分「引晶次數」與「晶棒支次」，不可把每一次進入NECK / CROWN / BODY的引晶嘗試都直接寫成第幾支晶棒。
+- 每次引晶需先列出是否形成晶棒產出：
+  1) 若該次引晶後進入TAIL，判定為正常晶棒產出，並列出Body結束BL或Tail前Body長度。
+  2) 若該次引晶後進入TAKE OUT，代表有晶棒實體被取出；若未正常進TAIL，需判定為NG取出/回填處置，不可視為正常完成。
+  3) 若Body、Crown或Neck後接MELT BACK，判定為短BL NG或早期異常後回熔續拉處置，僅計為該次引晶失敗，不可計為晶棒支次，也不可寫成第幾支晶棒產出。
+  4) 若PULL OUT、CHANGE SEED、REDIP出現在失敗後，代表重新接晶流程，需計入後續引晶嘗試，但不可直接計為新的晶棒支次。
+  5) 若紀錄結束時尚未進TAIL或TAKE OUT，需標記為「第N次引晶中，對應第M支晶棒生長中或尚未判定」，僅能分析目前已發生的狀態。
+- 在列出引晶次與晶棒支次後，需分開統計：
+  1) 引晶嘗試次數：完成接晶並進入NECK / CROWN / BODY的次數。
+  2) 實際晶棒產出支數：只有出現TAIL或TAKE OUT才計入。
+  3) 正常產出支數：有進TAIL者。
+  4) NG取出支數：未正常進TAIL但有TAKE OUT者。
+  5) 無晶棒產出失敗次數：BODY / CROWN / NECK後接MELT BACK，或失敗後PULL OUT / CHANGE SEED / REDIP續拉且未TAKE OUT者。
+- 完成引晶次與晶棒支次切分後，進入NG原因判斷前，必須先做每次Neck / Crown / Shoulder / Body的資料有效性前置檢查：
+  1) Neck是否為乾淨連續接晶，是否有BL/NLA回退或重置、Seed lift / SL / SLSP歸零、跳脫、回插或重新接觸液面。
+  2) Crown的Dia本身與temp29本身是否連續，是否有忽大忽小、階躍跳變或鋸齒狀上下跳動。
+  3) Shoulder end與Body BL0是否承接可信的Crown直徑訊號；若Crown訊號不可信，不可直接把Body起點Dia當成真實轉接狀態。
+  4) 只有前階段訊號可信後，才進入Body CP / RW / GR_mean / Power / BPUL等正式NG判斷。
+- 在列出每次引晶與每支晶棒結果後，需統計本份紀錄中發生幾次斷線或長晶失敗。斷線/失敗可依下列狀態判斷：
+  1) Body、Crown、Neck後接MELT BACK。
+  2) Body後直接接TAKE OUT。
+  3) PULL OUT、CHANGE SEED、REDIP等重新接晶流程明顯出現在一次長晶失敗後。
+  4) 使用者若明確說明該段為斷線或NG，需依使用者說明標記。
+  5) 若只有PULL OUT但無法確認是否斷線，需標記為「疑似斷線/重新接晶流程」，不可硬判定。
+- 完成整爐時間軸、引晶次數與晶棒支次判定後，才進入最後一次長晶狀況分析。
+- 最後一次長晶需優先描述：
+  1) 最後一次長晶是第幾次引晶。
+  2) 它對應第幾支晶棒，或是否尚未形成可判定晶棒支次。
+  3) 是否成功進TAIL或TAKE OUT。
+  4) 若未進TAIL / TAKE OUT，最後停在Neck、Crown、Shoulder、Body、MELT BACK、PULL OUT或其他哪個階段。
+  5) 最後一次Body或Crown/Neck的結束BL、NLA、RW、Dia狀態。
+  6) 是否仍有NG狀態需要進一步分析。
+- 若最後一次長晶仍為NG，才依該NG發生階段進入Neck / Crown / Shoulder / Body的正式NG分析流程。
+- 若最後一次只是Neck / Crown / Body生長中且尚未TAIL或TAKE OUT，需標記為紀錄未完整，不可直接硬判為NG晶棒產出。
+- 若同爐前幾支已正常進入TAIL，且其Body長度已超過最後一次NG發生長度，則前幾支應優先作為同爐OK組進行比較；不可直接要求使用者另外提供OK檔。
+- 使用同爐前幾支作為OK組時，仍需確認：
+  1) OK支在NG比較長度以前無明顯異常。
+  2) OK支與NG支之間是否有MELT BACK、TAKE OUT、RE CHARGE、ADD CHARGE等工序切換。
+  3) OK支與NG支的SOP、RW、CP與起始條件是否接近；若差異大，需註明比較可信度下降。
+- 若沒有正常進TAIL的前幾支可當OK組，才可改用NG支自身尚未異常的前段資料作內部OK參考，並需明確說明這不是完整OK組。
+
+1-2. 同爐多次引晶與晶棒支次判定規則
+- 同一份CSV若包含多次REDIP / CHANGE SEED / PULL OUT / MELT BACK / TAKE OUT，分析時必須同時列出「引晶次」與「晶棒支次」，避免把無產出的引晶失敗誤判為一支晶棒。
+- 引晶次數是製程嘗試次數：只要完成一次接晶並進入NECK / CROWN / BODY，即計為一次引晶嘗試。
+- 晶棒支次是實際有晶棒產出的支數：只有該次引晶後出現TAIL或TAKE OUT，才計為有晶棒實體產出。
+- TAIL表示該支晶棒正常產出，可作為OK組候選。
+- TAKE OUT表示有晶棒實體被取出，但若未正常進TAIL，需判定為NG取出/回填處置，不可作為正常OK棒。
+- BODY / CROWN / NECK後接MELT BACK，代表該次引晶失敗、短BL NG或早期異常後回熔續拉，不可計為晶棒支次。
+- PULL OUT / CHANGE SEED / REDIP若出現在失敗後，代表重新接晶流程；需用於切分下一次引晶，但不可直接增加晶棒支次。
+- 紀錄結束時若仍在NECK / CROWN / BODY且尚未TAIL / TAKE OUT，需寫成「第N次引晶中，對應第M支晶棒生長中，尚未完成」，不可直接寫成第N支晶棒。
+- 輸出表格建議欄位固定包含：引晶次、晶棒支次、起始時間、結束時間、主要結束Mode、Body結束BL或最後BL、是否TAIL、是否TAKE OUT、是否有晶棒產出、判定結果。
+- 若某次引晶沒有晶棒產出，晶棒支次欄位需填「—」或「無晶棒產出」，判定結果可寫「引晶失敗 / 短BL回熔 / MELT BACK續拉 / 疑似重新接晶流程」。
+
+2. OK特徵建立原則
+- OK pool可包含完整OK紀錄，也可加入NG紀錄中明確尚未異常的前段資料。
+- OK特徵應分Body長度區間建立，例如：BL0~100、100~200、200~300、300~400。
+- OK特徵不要只看平均值，應同時看常見範圍、上下緣、離群值。
+- 後續每新增OK紀錄，需重新更新OK範圍，提升特徵可靠度。
+
+3. NG特徵擷取優先順序
+- 分析NG時，先看實際製程狀態，不急著比較SLT/target。
+- Body初步NG特徵優先看：CP、RW、GR_mean、Dia-DTT、Dia震盪、Power、BPUL/BPLL、Pressure、Throttle、Power上升或下降速度。
+- 若本次紀錄新增Argon、Pressure、Throttle等欄位，Pressure與Throttle需納入代表點比較；Argon若OK/NG差異不明顯，可簡短說明即可。
+- HT/HTT差異不作為主分析指標；HT僅需針對NG紀錄全段檢查是否出現HT明顯偏離HTmean的異常，作為疑似加熱器打火或硬體異常的檢查項目。
+- SLT、Seed lift target、BTPL_SLTar等目標值，留到展開對策時再加入判斷。
+
+4. GR_mean判讀
+- Body NG常與GR_mean偏高有關，尤其在RW偏低時，高GR_mean風險會增加。
+- 本次F7 Body NG在BL168~368區間，GR_mean約比OK高0.06~0.10，可先記為NG實際特徵。
+- 但NG分析階段先不要說成「GR_mean相對SLT不足」，因為這是對策分析層級，不是初步特徵擷取層級。
+- OK組GR_mean範圍需依BL分段比較，不要用整段平均混在一起看。
+
+5. Crucible position vs RW判讀
+- Body NG通常需檢查同RW下的crucible position，不可只用同BL的CP直接下結論。
+- 若NG的CP在同RW下與OK接近，則不宜把NG主因歸為堝位過推或RW補償異常。
+- 若同RW下NG的CP明顯偏高或偏低，才進一步判斷堝位造成熱場變化。
+- 若同樣或接近GR_mean下，NG的CP明顯低於OK，需優先判斷為Gap偏大/熱場偏冷風險；此時GR_mean不一定是根本原因，可能只是CP偏低熱場條件下的結果或風險表現。
+- 建立OK組CP參考時，可用同RW下CP曲線或線性近似，例如CP_OK(RW)=CPT+offset+slope*RW；分析時比較CPcal與CP_OK(RW)的差值，而不是比較固定CP值。
+
+6. 每100mm取點比較原則，每次分析都必須列出
+- 除了NG點前100~200mm主窗平均比較，也要固定取Body代表點比較；優先列BL50、BL150、BL250、BL350，再依NG位置追加BL450、BL550、BL650、BL750、BL850、BL950、BL1050、BL1150、BL1250等中間代表點，以及NG前約50~100mm與NG點附近代表點。
+- 若NG位置較早或資料點不足，可改列最接近可取得的BL點，但需保留「前段固定點 + 中間點 + NG前/NG點」的概念。
+- 每個代表點至少列出：RW、CP/crucible position、GR_mean、Dia-DTT、Power、BPUL1；若資料欄位足夠，需同步列Pressure、Throttle，並可視需要列BPLL1。
+- 表格需使用OK/NG實際數值並列方式呈現，例如RW OK/NG、CP OK/NG、GR OK/NG、Dia-DTT OK/NG、Power OK/NG、BPUL OK/NG、Pressure OK/NG、Throttle OK/NG，不可只寫「偏高、偏低、接近」。
+- RW接近時，CP差異可直接作為堝位相對差異判斷；RW不接近時，需改看同RW下CP，不可只用同BL比較。
+- 若NG在多個代表點的RW與OK接近，但CP持續明顯偏低或偏高，應優先列為主特徵，而不是只看GR_mean或Power。
+- 代表點比較的目的，是找出差異從哪一段開始形成；例如BL150已經偏離，通常要往BL150以前追原因，不要只看NG前最後一段。
+
+7. CP過低型NG判讀
+- 若同BL或同RW下，NG的CP長時間明顯低於OK，應優先判斷為CP過低造成的Gap偏大、熱場偏冷、控制餘裕不足型NG。
+- CP過低不一定會立刻造成Dia偏小，可能先表現為GR_mean偏低、GR_mean偏高風險增加、Dia震盪變大、Power/BPUL被迫補償，後段再出現直徑轉小或控制追不上。
+- 若RW幾乎相同但CP全段偏低，例如BL50、150、250、350、400皆低於OK，則主因可直接指向堝位偏低，不宜誤判為單純GR_mean或單純BTPL補Power問題。
+- 同一個GR_mean在CP偏低製程中可能代表更冷的熱場；因此不能只用GR_mean接近OK就排除過冷型NG。
+- CP過低型NG的根本對策應先檢查Holding堝位、初始堝位、堝位/RW補償曲線、Body段CP推升速度；目標是讓進Body與Body過程中的CP追到OK組同RW參考CP。
+- 若CP偏低與Power/BPUL偏低或Power/BPUL補償偏高同時存在，要分清楚主從：CP偏低可能是根本熱場條件，Power/BPUL變化多半是腳本後續補救或限制。
+- 補救方式可在PVPA2加入CP偏低檢查：當CPcal低於OK組同RW參考曲線時，暫時提高aCPT加快堝位補償；當CP補回OK參考範圍後，aCPT需恢復原值，避免過推。
+
+8. Dia震盪判讀
+- Dia震盪可能造成Body NG，但需確認NG段的震盪幅度是否明顯大於OK。
+- 可用50mm或100mm rolling range / std比較Dia-DTT。
+- 若NG Dia震盪未明顯高於OK，則Dia震盪不是主特徵。
+- 若Dia由偏大逐步轉偏小，需搭配Power/BPUL一起判斷是否逐漸偏冷。
+
+9. Power與BPUL/BPLL判讀
+- Power往上增加太快可能造成NG，但也要看實際Power與Power limit是否同步偏高。
+- 若NG段Power/BPUL/BPLL後段偏低，且Dia由偏大轉偏小，較像逐步偏冷或控制餘裕下降。
+- 若Power快速上升且Dia同步放大或震盪放大，才偏向補熱過快造成不穩。
+- 分析Power時需同時看實際Power、BPUL1、BPLL1、BPU60mean、temp2等欄位。
+
+9-1. HT/HTmean硬體異常檢查
+- HT/HTT差異不列入Body NG主分析項目，也不需在OK vs NG代表點表中比較HTT。
+- 每次Body NG分析時，僅需針對NG紀錄全段檢查HT是否突然大幅度遠離HTmean。
+- 若NG全段未發現HT明顯偏離HTmean，簡短回報「HT全段未發現明顯偏離HTmean現象，未看到疑似加熱器打火特徵」即可。
+- 若NG紀錄出現HT瞬間大幅偏高或偏低，需列出BL位置、HT、HTmean、差值與持續時間，並提示可能為加熱器打火、SCR異常、Heater接觸不良、電源異常或Power量測異常。
+- HT異常檢查屬於硬體異常排查；若無明顯尖峰，不應把HT/HTT差異作為主要NG原因。
+
+10. 本次F7 Body NG暫定特徵
+- NG發生在BL368，因此BL168~368為主要分析窗。
+- NG的BL0~168可納入OK pool。
+- NG在BL168~368的GR_mean約比OK高0.06~0.10。
+- NG後段Power/BPUL偏低。
+- Dia由前段偏大逐漸轉成偏小。
+- CP/RW目前未看到明顯異常。
+- Dia震盪目前不是最主要差異。
+- 初步判斷：此筆NG主要特徵為GR_mean偏高、後段Power/BPUL偏低、Dia由偏大轉偏小，呈現逐步偏冷或控制餘裕下降風險。
+
+11. 本次BA Body420 NG暫定特徵
+- NG發生在BL420，因此主分析窗先看BL220~420。
+- 代表點比較顯示RW幾乎相同，但NG的CP全段明顯低於OK：BL50約低11、BL150約低10、BL250約低9.6、BL350約低9.1、BL400約低8.5。
+- NG在BL150~250的GR_mean明顯低於OK，BL350後才逐漸接近OK。
+- NG在BL220~420的Power/temp2與BPUL約低0.75~0.8kW，Dia-DTT震盪明顯大於OK。
+- 本次主因判斷：CP過低是主要差異與根本風險，後續GR_mean偏低、Power/BPUL偏低、Dia震盪放大較像是CP過低後的結果或放大因素。
+
+12. Body變形分析必比項目
+- 後續若被問到Body變形，或使用者問題中出現「變形」，必須優先走本段流程，不可只套一般Body NG的GR_mean / Power / BPUL判讀。
+- Body變形第一優先檢查Gap相關訊號：
+  1) Crucible Lift SP是否長時間固定不變、階躍後固定、或不跟隨CLtarget / crucible lift ratio變化。若成立，需列出固定區間的時間、BL範圍、CLSP固定值、CLtarget與crucible lift ratio變化，並優先判斷為疑似CLSP被切手動。
+  2) Body初期CLtarget是否已明顯低於crucible lift ratio。若成立，代表系統目標堝升比已要求降低，但實際/設定堝升比偏高，需優先懷疑Gap過近。
+  3) 相同RW時CP是否偏高或偏低；若有OK組，需用同RW比較CP，不可只用同BL比較。若沒有OK組，需明確註明無法定量判斷CP/GAP差異，但仍可依CLSP與CLtarget/ratio特徵判斷是否疑似Gap問題。
+- 若出現「CLSP長時間定值或階躍後固定」且「Body初期CLtarget明顯低於crucible lift ratio」，Body變形主因需優先判斷為Gap過近相關；常見更前層原因為初始堝位過近或初始堝升比設定太高，需明確提示使用者檢查初始堝升比設定與初始堝位。
+- 原本三項比較仍需保留，但作為第二層或放大因素判讀：
+  1) 相同RW時CP是否偏低；若CP偏低，表示Gap偏大/熱場偏冷，可能也是Body變形的重要原因。
+  2) GR_mean是否與SLT接近但SLT設定過高；若是，代表實際拉速看似跟上目標，但目標本身可能把製程推到高風險區。
+  3) GR_mean是否比SLT大很多；若是，表示BTPL控制不佳，可能未能有效抑制偏快/偏冷風險。
+- Body變形不能只用單一指標判斷；優先順序為Gap/CLSP/CLtarget/crucible lift ratio，再看同RW下CP，最後再看GR_mean與SLT相對關係、BTPL控制反應、Dia震盪與Power/BPUL是否為放大因素。
+- 若使用者詢問Body變形但資料內缺少CLSP、CLtarget、crucible lift ratio、RW、CP、GR_mean、SLT、countb或BPUL，需先列出缺少欄位與無法判斷的項目；若缺少OK組，仍需先就單筆資料檢查CLSP是否疑似手動、CLtarget是否低於crucible lift ratio，再提示補OK組做CP/GAP定量比較。
+
+13. BL<100直徑不足判讀流程
+- 若NG發生於Body BL100前，不可直接判定Body或BTPL為主因；必須先檢查Neck結束狀態、NLA累積品質、Neck是否有跳脫/回插、Crown的Dia/temp29自身連續性、Crown/Shoulder轉Body狀態。
+- 若BL100前NG無OK組可比較，需明確提示使用者補充相同SOP或接近RW的OK紀錄；未取得OK組前，不可直接將Crown或Body現象認定為主因。
+- BL100前NG原則上優先懷疑Neck或Crown/Shoulder銜接，而非BTPL；除非代表點與前階段檢查明確支持Body控制主因。
+- 若BL<100 NG經前階段檢查判斷為Crown NG，後續分析依Crown NG規則處理：只提示OK與NG的Crown差異，不需過度展開Body控制或BTPL對策。
+- 針對BL<100的直徑不足，必須先釐清Dia的變化趨勢，不可直接歸因為BTPL或BSL0。
+- 情境A：若BL<5時Dia已經遠小於DTT，且BL>5之後Dia有往上增加，表示進Body時直徑太小。
+  - 此時先檢查Body BL0~5的Dia是否可能延續前一階段CCD異常，並回頭檢查Crown的Dia本身與temp29本身是否連續。
+  - 若Crown或Body初期Dia/temp29本身出現忽大忽小、階躍跳變或鋸齒狀上下跳動，不可直接判定為BSL0、BTPL或初始BPUL問題，需優先提示CCD偵測 / 照片判讀 / 量測有效性異常。
+  - 若temp29與Dia差異很大，仍需請使用者往前檢查Crown CCD係數或Crown轉Body前的量測設定；但temp29-Dia差值不可取代Dia/temp29自身連續性檢查。
+- 情境B：若BL<5時Dia>DTT，但BL>5之後Dia一直沒有增加，可能原因是BSL0太高或初始BPUL太高。
+  - BSL0判定要與OK組比較Body剛進入BL0~2的Seed lift SP、Seed lift target、必要時看BTPL_SLTar / SLT / BPSLT_SL。
+  - 初始BPUL判定要與OK組比較BL0~30的BPUL1、BPLL1、temp2、BPmean與BPU60mean。
+- 若BL<100直徑不足同時伴隨CP偏低，需優先把Gap/CP納入判斷，不要只調BSL0或BPUL。
+- 若前一階段Crown的Dia或temp29自身不連續，Body BL<100的Dia偏大/偏小可信度下降，需先列為前段量測有效性風險，再判斷是否仍有Body控制問題。
+
+
+14. 本次E1 BL1300 NG與BTPL補BPUL判讀
+- BL1300 NG的主因判斷：BL1143~1206之間補BPUL過多；更前層原因是BL1038~1143小偏差區間補溫不足，導致後面GR_mean-SLT跨入大偏差後短時間大補。
+- 分析此類Body後段NG時，需把補BPUL分成兩段看：
+  1) 小偏差段：GR_mean-SLT約0.02~0.10，檢查countb是否累積、BPUL上限是否隨countb提高、delP是否被0.0005或delPMax卡住。
+  2) 大偏差段：GR_mean-SLT>=0.10，檢查是否因BPUL1距離BPU60mean+dP太遠而突然大補，並確認是否需要用countb限速。
+- 若NG狀態是在GR_mean尚未大幅上升前就已經需要補BPUL，對策不應只壓低大偏差補量；應把小偏差段補BPUL提前並平滑化。
+- 若長時間小偏差後剛進入GR_mean-SLT 0.10~0.15，建議用countb對大偏差delP限速；但GR_mean-SLT>0.15時不建議限速，避免真正偏冷或偏快時補BPUL太慢。
+- 比較OK時，需檢查同一BL/RW區間的delP分布；如果OK後段大多允許較大的delP，不能把大補完全取消，只能針對短時間過補區間做限速。
+
+15. 對策展開時再加入的項目
+- 對策分析才比較SLT、Seed lift target、BTPL_SLTar與GR_mean的相對關係。
+- 若GR_mean偏高但仍低於target，控制邏輯可能持續往冷側修正，需檢查BTPL/ASPVPA是否使BPUL下探。
+- 若低RW且GR_mean偏高，需評估是否限制後段GR上緣或放寬Power回補。
+- 若Power上升太快，需檢查delP、BPUL上限、BPU60mean追隨速度。
+- 若Dia震盪大，需回到PIDSL/BTPL對Dia-DTT、dDmean、Power修正步階做阻尼調整。
+
+16. 分析輸出格式建議
+- 一般Body/Neck/Crown NG分析：先列全紀錄與引晶/晶棒支次，再列Neck/Crown/Body資料有效性檢查；若資料可信，再列OK分段特徵、NG指定窗特徵、OK vs NG差異，最後才列可能原因與對策方向。
+- 初步特徵與對策推論要分開，避免把target/SLT造成的控制方向混入NG特徵擷取。
+
+16-1. Body變形回覆格式
+- 若使用者詢問「變形」，回覆開頭需先明確說明：本次依Body變形流程分析，優先檢查Gap/CLSP/CLtarget/crucible lift ratio，再看GR_mean-SLT、BTPL、Dia震盪與Power/BPUL。
+- 回覆順序固定如下：
+  1) 先列資料切分、SOP、Charge、RW後段門檻。
+  2) 優先列Gap/CLSP檢查結果：Crucible Lift SP是否長時間定值、階躍後固定、或不跟隨CLtarget / crucible lift ratio。
+  3) 列Body初期CLtarget vs crucible lift ratio比較，判斷是否一開始CLtarget就顯著低於ratio。
+  4) 若CLSP疑似被切手動，且CLtarget明顯低於crucible lift ratio，主因需先寫Gap過近相關，並提示檢查初始堝升比設定或初始堝位。
+  5) 再列同RW下CP比較；若無OK組，需註明無法定量判斷CP/GAP差異，但可依CLSP與CLtarget/ratio判斷Gap風險。
+  6) 最後才列GR_mean-SLT、BTPL/BPUL/Power、Dia震盪，並判斷它們是主因、次因或放大因素。
+- Body變形回覆中不可直接把GR_mean偏高、BPUL補償或Power變化列為第一主因，除非已先排除CLSP手動、CLtarget/ratio異常與同RW CP/GAP異常。
+- Body變形回覆可使用下列固定結論句：本次變形主因優先判斷為Gap相關，而不是單純GR_mean或BPUL問題。原因是Body內可看到Crucible Lift SP長時間固定/階躍後固定，疑似CLSP被切手動；且Body初期CLtarget已明顯低於crucible lift ratio，表示系統已要求降低堝升但實際/設定堝升比偏高。此狀況通常代表Gap過近，需優先檢查初始堝升比設定或初始堝位。
+
+17. E1 BL1300 NG與BTPL補BPUL判讀補充
+- E1 BL1300 NG的關鍵不只是最後BL1100~1300偏低Power，而是BL1038~1143小偏差補BPUL不足，接著BL1143~1206大偏差段短時間補BPUL過多。
+- 分析同類型NG時，需把補BPUL分成兩段看：
+  1) GR_mean - SLT 約0.02~0.10的小偏差段是否提早、平滑補BPUL。
+  2) GR_mean - SLT 約0.10~0.15的大偏差初期是否短時間補太多。
+- 若小偏差段長時間累積後才進入大偏差，建議檢查BTPL的countb時間權重、delP上限、BPU60mean + 0.3 + countb/600上限是否足夠。
+- 大偏差0.10~0.15不一定要持續限速，可採countb週期性限速：countb 120~240、360~480等區間delP乘0.5；countb 240~360、480~600等區間恢復原delP。
+- 若GR_mean > SLT + 0.15，代表偏差較大，週期限速不適用，避免真正需要補熱時反應過慢。
+
+18. E6 BL380 CP偏低型Body NG判讀補充
+- E6 BL380 NG應修正為CP偏低型NG：主因不是單純GR_mean偏高，而是CP低於OK組同RW參考堝位，使Gap偏大、熱場偏冷；同樣或接近GR_mean下，該製程實際更容易過冷而NG。
+- 分析此類case時，需優先比較同RW下CPcal與OK參考CP，不可只看BL代表點，也不可因GR_mean接近OK就排除CP/Gap問題。
+- 改善優先順序：先讓Holding或PVPA2把堝位調到OK組同RW參考CP，再評估BTPL是否需要補Power；BTPL補熱屬於後段補救，不是根本解法。
+- PVPA2補救邏輯可用OK組CP-RW線性近似作門檻，例如：
+  Symbol.aCPT = 10 ;
+  if ( Symbol.CPcal < Symbol.CPT + 15.74 - 2.8168 * Symbol.RW && Symbol.RW > 10 )
+  {
+      Symbol.aCPT = 20 ;
+  }
+- 上述公式的意義是用OK組同RW下的CP參考曲線判斷堝位是否偏低；當CPcal低於參考曲線時，提高aCPT讓堝位快速往OK組堝位補償，補償完成後因預設aCPT=10而恢復原值。
+- 使用此類公式時，需在報告中說明offset與slope來自OK組CP-RW關係；若後續新增OK資料，應重新檢查CP-RW曲線是否需要更新。
+
+19. Neck分析補充
+- Neck分析時必須檢查NLA；大部分製程條件在Neck結束前NLA需>299。若Neck結束前NLA未滿足，需先提示使用者此條件異常，不可直接跳到Body或Crown原因。
+- 若Neck結束前或進Crown前NLA明顯不足，除提示NLA異常外，需直接建議先檢查NPTJ、NPIDSL、PVPA/Holding腳本是否已為最新版，避免舊版腳本或版本混用造成連續短BL/Neck品質異常。
+- Neck NLA不可只看最終是否>299，必須檢查NLA累積過程與直徑分布品質。
+- Neck分析不可只看最終NLA是否達標；若同一NECK mode內出現BL/NLA回退或重置、SL / Seed lift / SLSP歸零、Dia或temp29突跳，需標記為跳脫、回插或重新接觸液面。此類狀況會直接影響後續Crown / Body起始條件，需優先列為前層原因或資料有效性風險。
+- Neck每次分析必須先檢查是否為乾淨連續接晶，固定檢查項目包含：BL是否突然降低、變負或重置；NLA是否突然歸零、回退或重新累積；Seed lift / SL / SLSP是否突然歸零或長時間接近0；Dia或temp29是否突然大幅跳變；同一NECK4 mode內是否多次出現上述現象。
+- 若同一NECK4 mode內出現多次跳脫/回插/重新接觸液面，不可當成一次乾淨連續Neck；需拆成多次接晶嘗試或至少在該引晶次中明確標記「Neck內多次跳脫/回插」。後續Crown / Body NG不可直接歸因於Crown或Body控制，需先把Neck接晶穩定性列為前層主因或重大放大因素。
+- 若NLA154前大量直徑貼近有效直徑上限，需提示：「雖然NLA達標，但Neck品質偏差，可能增加後續Crown / Body前段風險。」
+- NLA分布品質與最終NLA長度同樣重要；若NLA達標但分布偏上限、Dia震盪或GR_mean偏離OK，仍需列入後續NG風險。
+- 若紀錄中不管Neck或Crown出現BL反而降低，通常代表回插；回插有很大機率造成後續NG，需先標記並提示使用者確認當時是否有回插或重新接觸液面。
+- Neck理想的結束前GR_mean通常為2~3；若Neck結束前GR_mean低於2或高於3，需提示有後續NG風險，並與OK組比較後再判斷嚴重程度。
+- Neck重要參數包含GR_mean、Dia震盪、SLSP震盪、Dia分布、CP、Power震盪。上述項目需優先與OK組比較，OK組條件需盡量相同SOP且RW差異很小；若SOP或RW差異大，需先提示比較基準可信度不足。
+- Neck階段temp29代表直徑；若temp29與Dia差異超過0.3，可能是CCD偵測或直徑量測異常，需提示使用者確認CCD/照片/量測設定。
+- Neck階段也必須分別檢查Dia本身與temp29本身是否連續；若任一者出現短時間忽大忽小、階躍跳變、鋸齒狀上下跳動或長時間固定後突然跳變，需優先列為CCD偵測/量測有效性異常，不可只用temp29-Dia差值判斷。
+
+20. Crown分析補充
+- Crown主要檢查項目為CP、PIDSL_temp1、PIDSL_dDmean、temp5、Dia、temp29。
+- Crown分析時必須先檢查Dia與temp29各自的時間連續性；不可只比較temp29-Dia差值。
+- Crown正常展肩過程中，Dia與temp29應大致連續並逐步增加。若Dia或temp29任一者在Crown內出現短時間忽大忽小、單點突然上跳/下掉再恢復、鋸齒狀上下跳動、長時間固定後突然跳變，需優先判斷為CCD偵測 / 照片判讀 / 量測有效性異常，不可直接當成真實展肩變化。
+- Crown BL>10後，若Dia或temp29單次跳變>2mm需標記；若1分鐘內Dia或temp29上下跳動範圍>5mm需標記；若出現「上跳→下掉→再上跳」鋸齒型變化，即使單點未超過2mm，也需列為疑似CCD偵測不穩。
+- 若PIDSL_temp1或PIDSL_dDmean出現尖峰，且Dia或temp29同時不連續，需先判斷為量測假訊號放大；不可直接用PIDSL_temp1尖峰推論展肩過快、偏冷、PIDSL或CTPFL控制異常。
+- Crown時BL>10後，若PIDSL_temp1出現劇烈上下震盪，通常會伴隨Dia震盪；常見原因是CCD偵測異常，因為Crown是降溫展肩過程，Dia正常應該只會慢慢增大。另一個可能原因是晶棒晃動，需提示使用者確認照片。
+- Crown時晶棒晃動通常與CR以及溫度過冷有關，分析時需同步檢查CR、CP、temp5、Power與Dia/PIDSL_temp1震盪。
+- Crown時若CR<12，通常Dia震盪更偏向CCD偵測異常，需優先提示確認CCD/照片；但仍需保留晶棒晃動或過冷造成震盪的可能性。
+- Crown時PIDSL_temp1大小基本上與Dia成正比；經驗上Dia>30後，PIDSL_temp1最佳範圍約1.8~4。若PIDSL_temp1超過4通常偏冷或展肩過快風險較高，但此判斷必須建立在Dia/temp29自身連續可信的前提下，最好再與OK組比較後確認。
+- Crown CP需與OK組比較；比較時仍以相同或接近RW為優先，避免只用同BL直接判斷CP偏高或偏低。
+- Crown正常製程長度通常在40~70之間；若Crown長度超出此範圍，通常代表製程異常，需提示使用者檢查Neck轉Crown狀態、CP、CR、溫度與CCD。
+- Crown結束時Dia通常約為Body直徑的-12~-3；若超出此範圍可能異常，但仍需與OK組比較。Body直徑可由SOP名稱第8碼判斷。若Crown過程Dia/temp29不連續，Crown end Dia可信度下降，需先標記CCD/量測有效性風險。
+- 若判定為Crown NG，包括BL<100 NG追溯後判斷為Crown NG，分析輸出以提示OK與NG的Crown差異為主；固定列出SOP名稱，並比較Crown代表點或關鍵區間的RW、CP/Crucible Position/CPcal、Dia、CR、Power、PIDSL_temp1、temp29與轉Body/Shoulder前狀態即可，不需額外展開成偏熱/偏冷分類或腳本改善建議，除非使用者另行要求。
+- Crown NG差異比較表需固定列出SOP、RW、CP、Dia、CR、Power、PIDSL_temp1、temp29；若CSV無CP欄位，需明確註明「本檔未提供CP，無法比較堝位差異」，不可直接省略CP檢查。
+- 若Crown的Dia或temp29自身不連續，後續Shoulder end與Body BL0的直徑狀態不可直接當成真實轉接狀態；需先提示確認CCD、照片、晶棒晃動與量測設定，再判斷是否存在Crown/Shoulder或Body控制問題。
+
+21. Shoulder分析補充
+- Shoulder階段不需過度解讀BPUL、BPLL、Power短時間跳動。
+- Shoulder重點檢查結束前Dia是否有下降或收斂趨勢。
+- 若Shoulder結束前Dia有下降趨勢，優先視為正常轉Body；若持續上升或再次加速放大，需列為異常。
+- 即使Shoulder結束前趨勢正常，仍需與OK組比較Shoulder end Dia是否明顯偏大或偏小，因為轉Body起點狀態可能影響Body前段NG。
+
+22. SOP尺寸解析補充
+- SOP名稱第8碼代表晶棒尺寸，可用於推估Body目標直徑：
+  1) 第8碼為6：6吋，Body直徑約155。
+  2) 第8碼為5：5吋，Body直徑約133。
+  3) 第8碼為8：8吋，Body直徑約206。
+  4) 第8碼為4：4吋，Body直徑約105。
+  5) 第8碼為3：3吋，Body直徑約80。
+- 判斷Crown結束Dia是否合理時，可用上述Body直徑推估合理範圍，例如6吋Body約155，Crown結束Dia合理區間約143~152；但最後仍應以相同SOP與接近RW的OK組資料為準。
+
+
+23. Body CCD校正介入判讀
+- Body階段若BL>50後，Dia出現接近垂直的變化，尤其單次差值>2以上，需優先懷疑有人員違反規定手動介入CCD校正。
+- CCD校正時，Dia通常會短暫停在校正前最後一個數字；校正完成後，Dia會因CCD內部移動平均快速往校正後數字收斂。
+- 因此紀錄上通常會看到接近垂直的跳變，但不會剛好完全垂直。
+- 由於CCD與PLC沒有直接連結，腳本與PLC通常無法直接偵測是否有人員校正CCD，只能由Dia與PIDSL_temp1特徵反推。
+- 若為CCD校正造成，紀錄上常會看到PIDSL_temp1突然出現很大幅度的上下震盪，震盪幅度通常明顯大於正常OK組與一般NG組。
+- 此時不可直接把PIDSL_temp1尖峰判斷為PIDSL控制異常，也不可直接歸因於BTPL補/扣Power異常、熱場急變或真實Dia急縮/急放。
+- 發現此特徵時，需先提示使用者確認是否有人員手動CCD校正、是否有操作紀錄，並建議確認當時照片或影像。
+- CCD校正後不一定立即NG，但經驗上有機會在校正後約0.8~1個Body Dia長度內發生NG。
+- 估算高風險區時，可依SOP第8碼推估Body Dia：6吋約155、5吋約133、8吋約206、4吋約105、3吋約80。
+- 例如6吋製程若在BL X附近發生疑似CCD校正，後續約BL X+125到X+155需列為高風險觀察區；5吋約X+105到X+133；8吋約X+165到X+206。
+- 分析此類case時，需比較CCD校正前後的Dia、PIDSL_temp1、PIDSL_dDmean、SLSP、GR_mean、Power、BPUL/BPLL是否出現連鎖偏移。
+- 若Dia跳變後0.8~1個Dia長度內發生NG，需把CCD校正列為重要可能原因或放大因素，不宜只從NG點前100~200mm的熱場/BTPL/PIDSL反應下結論。
+- 若前後數分鐘內Power、SLSP、GR_mean無法合理解釋Dia接近垂直跳變，且PIDSL_temp1同步出現異常尖峰，應先暫停後續根因推論，優先提示「疑似CCD校正或CCD量測異常」。
+
+24. 工序與各階段工時紀錄判讀
+- 分析CSV時，需先依Operation Mode整理完整工序時間軸；對外輸出的全紀錄總覽只需列出總工時即可，開始時間與結束時間作為內部切分依據，除非使用者要求不需展開。
+- 若同一CSV包含同爐多次引晶或多支晶棒，需先分開切分「引晶次」與「晶棒支次」，並列出每次引晶的起訖時間、主要工序、Body結束BL或最後BL、是否進TAIL、是否TAKE OUT、是否有晶棒產出，以及最終結果。
+- 結果判定原則：
+  1) 有進TAIL者，判定為正常晶棒產出，並列出產出Body長度。
+  2) 有TAKE OUT者，代表有晶棒實體產出；若未正常進TAIL，判定為NG取出/回填處置，不可視為正常產出。
+  3) Body / Crown / Neck後接MELT BACK者，判定為短BL NG或早期異常後回熔續拉，只能算引晶失敗或無晶棒產出，不可計入晶棒支次。
+  4) PULL OUT / CHANGE SEED / REDIP若出現在失敗後，視為重新接晶流程與下一次引晶前置，不可直接計為晶棒支次。
+  5) 紀錄未結束且尚未進TAIL或TAKE OUT者，需標記為紀錄未完整；若已進NECK / CROWN / BODY，需寫成第N次引晶中、對應第M支晶棒生長中或尚未判定。
+- 完成引晶次與晶棒支次判定後，需分開統計整份紀錄的引晶嘗試次數、實際晶棒產出支數、正常TAIL產出支數、NG取出支數、無晶棒產出失敗次數，並列出每次失敗發生階段與大約BL/NLA位置。
+- 斷線或長晶失敗的判斷不可只看單一Mode名稱，需結合前後工序與現場語意；例如BODY後直接TAKE OUT、BODY/CROWN/NECK後接MELT BACK、或重新PULL OUT / CHANGE SEED / REDIP，均需列為斷線、NG或疑似重新接晶流程檢查項目。
+- 若過程中某些階段時長明顯過長，需提示使用者，並列出該階段起訖時間、工時與可能影響。需特別檢查：
+  1) PUMP時間是否異常偏長。
+  2) MELT / ADD CHARGE / RE CHARGE是否異常偏長。
+  3) STABILIZE / HOLDING是否等待過久。
+  4) PULL OUT / CHANGE SEED / REDIP是否異常偏長或重複。
+  5) MELT BACK時間是否異常偏長。
+  6) TAKE OUT到RE CHARGE或再次長晶之間是否等待過久。
+  7) HOLDING到NECK、NECK到CROWN、CROWN到BODY之間是否有異常等待。
+- 工序時長是否過長需優先與同爐其他正常TAIL產出支、相同SOP或相近SOP的正常紀錄比較；若無比較基準，需標記為「相對偏長疑點」，不可直接定為主因。
+- 回填原料、RE CHARGE、ADD CHARGE、REDIP、PULL OUT、CHANGE SEED、MELT BACK等段落常伴隨RW、CP、Power或狀態重置，需標記為工序切換/資料不連續點。這些不連續點之後的資料需重新建立起始條件。
+- 若同爐最後一次長晶仍為NG，分析重點需放在最後一次NG；前面正常進TAIL的晶棒應作為OK組，依Neck / Crown / Body規則進行OK vs NG比較。
+- 若同爐前幾次引晶中已有正常進TAIL的晶棒，且在最後一次NG長度以前無明顯異常，必須優先使用這些正常TAIL產出支作為OK組；不可把MELT BACK前的無產出引晶失敗段當成正常OK棒，也不可直接要求使用者補OK檔。
+- 若同爐後續晶棒同樣一次拉起且順利進TAIL，代表前面回填、MELT BACK或續拉流程未必有致命問題；仍需回到發生NG的該次引晶前100~200mm與前階段條件追根因。
+
+25. E3_All同爐兩支工序範例
+- 本紀錄為同爐第一支一次拉起，第一支在Body BL約1258時NG，現場決定直接TAKE OUT；之後回填原料並生長同爐第2支，第2支也一次拉起且過程順利。
+- 第一支主要工序與工時：
+  1) PUMP：2026-05-27 14:31:54 ~ 16:14:54，約1:43。
+  2) MELT：2026-05-27 16:15:04 ~ 2026-05-28 02:02:06，約9:47。
+  3) ADD CHARGE：2026-05-28 02:02:16 ~ 03:32:14，約1:30。
+  4) MELT：2026-05-28 03:32:24 ~ 04:46:50，約1:14。
+  5) STABILIZE：2026-05-28 04:47:00 ~ 07:24:35，約2:38。
+  6) HOLDING：2026-05-28 07:24:45 ~ 07:31:35，約0:07。
+  7) CHANGE SEED / REDIP / CHANGE SEED / REDIP：2026-05-28 07:31:45 ~ 11:13:45，合計約3:42，其中第二段REDIP約3:09。
+  8) HOLDING：2026-05-28 11:13:55 ~ 11:44:48，約0:31。
+  9) NECK4：2026-05-28 11:44:58 ~ 14:07:20，約2:22，結束BL約449，NLA約286。
+  10) CROWN：2026-05-28 14:07:30 ~ 15:05:06，約0:58。
+  11) SHOULDER：2026-05-28 15:05:16 ~ 15:14:36，約0:09。
+  12) BODY：2026-05-28 15:14:46 ~ 2026-05-29 15:27:56，約24:13，結束BL約1258；此段為NG後takeout前的Body，不可視為OK完成。
+  13) TAKE OUT：2026-05-29 15:28:06 ~ 23:31:09，約8:03，為第一支NG後處置並接續回填前置。
+- 第二支主要工序與工時：
+  1) RE CHARGE：2026-05-29 23:31:19 ~ 23:52:21，約0:21。
+  2) REDIP / MELT / ADD CHARGE：2026-05-29 23:52:31 ~ 2026-05-30 01:29:40，合計約1:37，其中ADD CHARGE約1:23，RW回填到約85kg。
+  3) MELT：2026-05-30 01:29:50 ~ 04:01:43，約2:32。
+  4) STABILIZE：2026-05-30 04:01:53 ~ 07:33:32，約3:32。
+  5) HOLDING：2026-05-30 07:33:42 ~ 07:40:42，約0:07。
+  6) PULL OUT / CHANGE SEED / REDIP / CHANGE SEED / REDIP：2026-05-30 07:40:52 ~ 10:32:47，合計約2:52。
+  7) HOLDING：2026-05-30 10:32:57 ~ 10:59:50，約0:27。
+  8) NECK4：2026-05-30 11:00:00 ~ 14:32:39，約3:33，結束BL約358，NLA約299.7，符合大部分製程Neck結束前NLA>299的要求。
+  9) CROWN：2026-05-30 14:32:49 ~ 15:35:24，約1:03。
+  10) SHOULDER：2026-05-30 15:35:34 ~ 15:43:55，約0:08。
+  11) BODY：2026-05-30 15:44:05 ~ 2026-05-31 06:30:43，約14:47，紀錄至BL約821，使用者確認第2支順利。
+- 使用E3_All作為範例時，需特別標記：第一支Body BL約1258 NG後takeout；第二支是回填原料後同爐再拉，不能把第一支takeout後到第二支Body的等待時間誤判成單支晶棒的中途閒置。
+
+26. MELT BACK與短BL續拉紀錄判讀
+- 當NG發生在Body BL偏短，或發生在Crown之前、Crown初期、Shoulder/Body初期時，現場常會選擇MELT BACK，而不是直接TAKE OUT或完整回填重開爐。
+- 若CSV出現BODY / CROWN / NECK後接MELT BACK，需先視為短BL NG或早期異常後的續拉處置，不可直接當成正常製程結束，也不可把MELT BACK前後資料當成同一支晶棒的連續Body資料。
+- 分析此類紀錄時，第一重點是工序時長是否正常：PUMP、MELT、ADD CHARGE、STABILIZE、DOPING、REDIP、PULL OUT、HOLDING、NECK、CROWN、SHOULDER、BODY、MELT BACK、再次PULL OUT/CHANGE SEED/REDIP/HOLDING/NECK等都需分段列出。
+- MELT BACK後通常代表同爐續拉或回熔後重新建立生長條件，可能伴隨RW、CP、Power/NEP、HTmean、countb、NLA、BL等重置；MELT BACK前後不可直接做連續趨勢推論。
+- 若MELT BACK前已有明確NG，例如BL偏短、Crown前失敗、Neck/Crown/Shoulder/Body初期異常，需先分析該次NG原因，再判斷續拉工序是否正常。
+- 若MELT BACK前後沒有明顯製程異常或沒有足夠證據定因，需回覆「目前未看到顯著單一原因，請提供相同SOP或接近RW的OK組資料比對」，不可硬下結論。
+- 分析MELT BACK類紀錄時，需特別比較：第一次生長失敗前100~200mm或失敗前一階段、MELT BACK工時、MELT BACK後PULL OUT/CHANGE SEED/REDIP/HOLDING工時、第二次Neck/Crown/Body是否能一次拉起。
+- 若續拉後第二支能一次拉起且過程順利，代表MELT BACK流程本身未必異常；第一次NG仍需回到第一次失敗前的Neck/Crown/Body資料追根因。
+- 若續拉後第二次仍失敗，需比較兩次失敗是否有共同特徵，例如Neck NLA不足、Crown展肩過快/過慢、Body初期Dia震盪、CP/RW異常、Power/BPUL下探或回補異常。
+
+27. E7_All短BL NG後MELT BACK續拉工序範例
+- 本紀錄屬於同爐第一支Body BL約326時現場判定NG，之後執行MELT BACK，再PULL OUT / CHANGE SEED / REDIP / HOLDING後進行第二次Neck的續拉流程；此類紀錄與E3_All的TAKE OUT後回填再拉不同。
+- E7_All第一輪主要工序與工時：
+  1) PUMP：2026-05-29 13:59:38 ~ 15:42:47，約1:43。
+  2) MELT：2026-05-29 15:42:58 ~ 2026-05-30 02:43:26，約11:00。
+  3) ADD CHARGE：2026-05-30 02:43:36 ~ 03:32:20，約0:49。
+  4) MELT：2026-05-30 03:32:30 ~ 05:36:21，約2:04。
+  5) STABILIZE：2026-05-30 05:36:31 ~ 09:57:54，約4:21。
+  6) DOPING：2026-05-30 09:58:04 ~ 10:50:29，約0:52。
+  7) REDIP / NECK1 / PULL OUT：2026-05-30 10:50:39 ~ 12:32:18，合計約1:42，其中PULL OUT約1:39。
+  8) HOLDING：2026-05-30 12:32:28 ~ 12:56:30，約0:24。
+  9) NECK4：2026-05-30 12:56:40 ~ 16:28:49，約3:32，結束BL約410，NLA約299.6，符合大部分製程Neck結束前NLA>299的要求。
+  10) CROWN：2026-05-30 16:28:59 ~ 17:44:16，約1:15。
+  11) SHOULDER：2026-05-30 17:44:26 ~ 17:50:36，約0:06。
+  12) BODY：2026-05-30 17:50:46 ~ 23:33:06，約5:42，結束BL約326；此段為短BL NG後MELT BACK前的Body，不可視為OK完成。
+  13) MELT BACK：2026-05-30 23:33:16 ~ 2026-05-31 02:10:00，約2:37。
+- E7_All第二次續拉前置工序與工時：
+  1) PULL OUT：2026-05-31 02:10:10 ~ 03:15:46，約1:06。
+  2) CHANGE SEED / REDIP / CHANGE SEED / REDIP：2026-05-31 03:15:56 ~ 04:51:55，合計約1:36，其中第二段REDIP約1:01。
+  3) HOLDING：2026-05-31 04:52:05 ~ 05:30:08，約0:38。
+  4) NECK4：2026-05-31 05:30:18 ~ 06:44:04，約1:14，紀錄結束時BL約106、NLA約63，尚未到Neck結束，不能直接判斷第二次Neck最終是否OK。
+- E7_All第一輪Body代表特徵：BL50 Dia-DTT約+0.9，BL100約+6.5，BL150約-0.7，BL200約+6.7，BL250約+0.6，BL326約-0.9；BL50~250存在明顯大幅度Dia震盪，且未看到單次Dia垂直跳變>2的CCD校正典型特徵。
+- E7_All第一輪Body Power/BPUL大致呈低Power限制狀態，BTPL_BPUL1由BL50約-7.36逐步降到BL250約-9.72，BL300後才緩慢回升；此現象可能與Body初期Dia震盪/冷熱來回相關，但單靠本筆紀錄仍不足以確認根因。
+- 針對E7_All，若需判斷第一輪BL326短BL NG根因，建議補提供相同SOP或接近RW的OK組資料，比較Body BL0~300的Dia-DTT震盪、GR_mean/SLSP/SLT、CP/RW、Power/BPUL/BPLL、Crown結束Dia與Neck結束狀態。
+
+28. 同爐前幾支正常產出作為OK組比較原則
+- 若同一爐包含多次引晶與多支晶棒，必須先區分「引晶次」與「晶棒支次」；只有出現TAIL或TAKE OUT才算有晶棒實體產出，MELT BACK前的短BL失敗段不可計為晶棒支次。
+- 若同爐前幾支已正常進入TAIL，並且其Body BL長度已經遠超過後續晶棒NG的Body BL長度，則必須優先把同爐前幾支在後續NG長度以前的紀錄視為OK組進行比較；不可直接要求使用者另外提供OK檔。
+- TAIL表示該支晶棒正常產出，可作為OK組候選；TAKE OUT表示有晶棒實體取出，但若未正常進TAIL，需視為NG取出/回填處置，不可把TAKE OUT前Body當作正常完成棒。
+- BODY / CROWN / NECK後接MELT BACK，只能代表該次引晶失敗或短BL回熔續拉，不能寫成第幾支晶棒，也不能列入正常OK pool。
+- 例如第1次引晶正常進TAIL，為同爐第1支；第2次引晶BODY後MELT BACK，則為第2次引晶失敗且無晶棒產出；第3次引晶正常進TAIL，才是同爐第2支。後續若第4次引晶Body NG，應寫成第4次引晶NG，而不是第4支正常晶棒。
+- 使用同爐前幾支作為OK組時，仍需先確認OK支與NG支之間是否有MELT BACK、TAKE OUT、RE CHARGE、ADD CHARGE、REDIP、CHANGE SEED等工序切換；若有切換，需重新標記起始條件，不可把不同支資料當作連續Body。
+- 同爐前幾支作為OK組的優先比較項目包含：Neck結束NLA/GR_mean、Crown結束Dia/temp5/PIDSL_temp1、Shoulder結束Dia、Body代表點BL50/150/250/350的RW、CP、GR_mean、Dia-DTT、Power、BPUL/BPLL、Pressure與Throttle。
+- 若OK支與NG支的RW、CP、SOP或起始條件差異很大，需在報告中註明比較可信度下降；但同爐正常進TAIL的前幾支仍應作為第一優先參考。
+- 若前幾支在後續NG長度以前已出現明顯異常，例如Dia大震盪、CCD校正疑似跳變、Power/BPUL異常下探、Neck NLA不足或Crown異常，則不可直接當成乾淨OK組，需排除該支或降低其權重；必要時再請使用者提供外部OK組。
+- 若同爐只有單一支NG且沒有前幾支正常進TAIL，才可改用NG支自身尚未異常的前段資料作內部OK參考，並需明確說明「此為本支內部穩定區參考，不是完整OK組」。
+- 分析輸出時需明確寫出：使用哪幾次引晶、哪幾支正常進TAIL晶棒作為OK pool、各OK支的Body長度、後續NG發生在第幾次引晶/第幾支晶棒、OK/NG兩者RW/CP是否接近，以及比較結論。
+
+29. OK vs NG代表點實際數值比較輸出規則
+- 若分析對象為同爐多次引晶或多支紀錄，輸出順序需固定為：
+  1) 整份紀錄總工時。
+  2) 引晶次數與晶棒支次對照表。
+  3) 實際晶棒產出支數、正常TAIL產出支數、NG取出支數、無晶棒產出失敗次數。
+  4) 斷線/NG次數統計。
+  5) 各階段是否有工時過長或等待過久。
+  6) 最後一次長晶狀況，需寫清楚是第幾次引晶，以及對應第幾支晶棒或尚未形成晶棒支次。
+  7) 若最後一次長晶為NG，才進入最後一次NG分析。
+  8) 若前幾支正常進TAIL，需使用前幾支作OK組進行OK vs NG比較。
+  9) 依NG階段套用Neck / Crown / Shoulder / Body分析流程。
+- 引晶次數與晶棒支次對照表至少需包含：
+  1) 引晶次。
+  2) 晶棒支次；若無晶棒產出，填「—」或「無晶棒產出」。
+  3) 起始時間。
+  4) 結束時間。
+  5) 主要結束Mode。
+  6) Body結束BL或最後BL。
+  7) 是否進TAIL。
+  8) 是否TAKE OUT。
+  9) 是否有晶棒產出。
+  10) 判定結果：正常產出 / NG取出 / MELT BACK無產出續拉 / 疑似斷線或重新接晶 / 紀錄未完整。
+- 有TAIL者才可判定為正常產出並列入OK組候選；有TAKE OUT但未進TAIL者只代表有晶棒實體取出，需判定為NG取出，不可列入正常OK組。
+- BODY / CROWN / NECK後接MELT BACK者，僅為該次引晶失敗或短BL回熔續拉，不可列為晶棒支次，也不可當成正常OK支。
+- 若同爐或同SOP已有可用OK組，分析NG時需優先列出代表點實際數值，不可只用文字描述「偏高、偏低」。
+- 每段NG/OK比較表與代表點實際數值表，必須固定列出SOP名稱；若OK與NG SOP不同，需先提示比較可信度下降，避免不同SOP直接混比。
+- 同一份紀錄若出現多次NG，必須逐次分開分析；最後一次長晶若仍為NG，需優先分析最後一次NG；前面正常進TAIL的晶棒若可用，需作為OK組比較。
+- 若最後一次紀錄仍在NECK / CROWN / BODY且尚未TAIL或TAKE OUT，需寫成「第N次引晶中，對應第M支晶棒生長中，紀錄未完整」，不可直接硬判為第N支晶棒NG。
+- 若同爐前幾支正常進TAIL且Body長度已經遠超過後續NG支的NG長度，可直接把前幾支作為OK組比較，不必再要求額外OK檔；但仍需確認OK支在比較區間內本身沒有明顯異常。
+- 代表點固定優先列：BL50、BL150、BL250、BL350；若NG點在更後段，需依NG位置加入中間代表點，例如BL450、BL550、BL650、BL750、BL850、BL950、BL1050、BL1150、BL1250等，並追加NG前約50~100mm與NG點附近代表點。
+- 表格至少列出OK與NG的：RW、CP、GR_mean、Dia-DTT、Power、BPUL1、Pressure、Throttle。若資料欄位名稱不同，需用相同意義欄位替代並在表格標題註明；若Pressure或Throttle欄位不存在，才可省略並說明資料未提供。
+- 若資料欄位足夠，可加列BPLL1；但HT/HTT不列入代表點比較表，不比較OK與NG的HTT差異。
+- 表格格式應以同一列BL呈現OK與NG數值，例如RW OK/NG、CP OK/NG、GR OK/NG、Dia-DTT OK/NG、Power OK/NG、BPUL OK/NG、Pressure OK/NG、Throttle OK/NG，方便直接看差值。
+- 若已有OK/NG可直接比較，NG分析段落輸出順序應為：先簡短判定工序是否正常；再列代表點實際數值表；再列差異摘要；最後才寫NG原因判斷與對策方向。
+- 若工序正常，只需簡短寫「工序正常」。只有工序異常、等待過久、資料不連續或無法判斷時，才列出詳細工時與疑點。
+- 差異摘要需說明差異從哪個BL開始形成、是否逐步擴大、是否在NG前明顯放大；避免只寫「GR偏高、Power偏低」等單點描述。
+- Body NG主因判斷優先順序建議為：CP、RW、GR_mean、Dia-DTT、Power、BPUL/BPLL、Pressure、Throttle，最後再檢查HT異常。
+- HT檢查僅針對NG紀錄全段計算HT-HTmean或等效差值；若未發現明顯偏離，簡短回報「HT全段未發現明顯偏離HTmean現象，未看到疑似加熱器打火特徵」即可。
+- 若無OK組且資料本身沒有顯著單一原因，需回覆「目前未看到顯著單一原因，請提供相同SOP或接近RW的OK組資料比對」，不可硬下結論。
+- 若有OK組但RW、CP或起始條件差異很大，仍可先列代表點數值，但需在差異摘要中註明比較可信度下降。
+
+30. MELT BACK / 短BL NG分析輸出補充
+- NG若發生在BL偏短，或發生在Neck、Crown、Shoulder、Body初期，現場可能選擇MELT BACK；BODY / CROWN / NECK後接MELT BACK不一定代表資料異常，需視為短BL NG後續拉或回熔處置。此類段落只算引晶失敗或無晶棒產出，不可計入晶棒支次。
+- 此類紀錄需先判斷工序時長是否正常；若工序正常，回覆可只寫「工序正常」，不要把正常工序展開成長篇敘述。
+- 若工序正常且已有OK組，需直接做OK vs NG代表點實際數值比較，並依數值判斷NG原因。
+- 若工序異常或等待過久，例如MELT BACK前後、PULL OUT、CHANGE SEED、REDIP、HOLDING任一段明顯偏長，需列出異常工序與時間，並說明是否可能影響後續生長。
+- 若無OK組，且該筆紀錄沒有顯著單一異常特徵，需請使用者提供OK組資料，不可只憑MELT BACK本身判定根因。
+- 若MELT BACK後續拉成功，不代表MELT BACK前的NG原因消失；仍需回到NG支失敗前100~200mm或代表點實際數值，與OK組比較後判斷。
+
+
+31. 2026-06-09 Body代表點分析格式更新
+- 後續使用者提供同爐多次引晶、多支晶棒或OK/NG CSV比較時，預設先輸出整份紀錄總工時 → 引晶次數與晶棒支次對照 → 實際產出/正常TAIL/NG取出/無產出失敗統計 → 斷線/NG次數 → 工時異常檢查 → 最後一次長晶狀況；若最後一次仍為Body NG，再依本版格式輸出：工序是否正常 → OK vs NG代表點實際數值表 → 差異摘要 → NG原因判斷 → 對策方向。
+- 全紀錄總覽只需說總工時，不需固定輸出開始時間與結束時間；開始與結束時間可用於內部計算與工序切分。
+- 引晶次數與晶棒支次必須分開：TAIL或TAKE OUT才算有晶棒實體產出；TAIL為正常產出，TAKE OUT未進TAIL為NG取出；MELT BACK前的短BL失敗段不可計為晶棒支次。
+- 最後一次若仍在NECK / CROWN / BODY且尚未TAIL或TAKE OUT，需標記為「第N次引晶中，對應第M支晶棒生長中，紀錄未完整」，不可直接硬判為第N支晶棒NG。
+- 代表點表優先列BL50、BL150、BL250、BL350，並依NG位置補足中間代表點與NG前/NG點附近代表點。
+- 表格固定優先包含RW、CP、GR_mean、Dia-DTT、Power、BPUL、Pressure、Throttle，以OK/NG實際數值並列。
+- HT/HTT差異不作為主分析指標；僅需針對NG紀錄全段檢查HT是否明顯偏離HTmean，作為疑似加熱器打火或硬體異常的排查項目。
+- 若NG全段HT未發現明顯偏離HTmean，回報「HT全段未發現明顯偏離HTmean現象，未看到疑似加熱器打火特徵」即可。
+
+32. 注意事項文件本身的更新維護規則
+- 每次修改本注意事項文件時，必須同步更新文件最上方版本號與括號內更新摘要，不可只修改內文而保留舊版號。
+- 版本號格式建議為「YYMMDD_流水號」，例如260601_01、260601_02；同一天多次修改時，流水號需遞增。
+- 檔名也需盡量與文件最上方版本號一致，避免檔名與內文版本不同造成引用錯誤。
+- 每次新增規則時，需先檢查全文是否已有相近或重複章節；若屬於既有主題，優先整合到原章節或補充條列，不要任意新增互相衝突的規則。
+- 若新增內容會取代舊規則，需明確寫出「取代」或「不再採用」的項目，例如HT/HTT差異不再作為Body NG主分析指標。
+- 修改完成後，需確認章節編號連續、重複編號已修正，並確認新增規則與既有分析順序一致。
+- 對於Body OK/NG CSV分析規則，若使用者另有最新口頭修正，應優先更新到本文件後再依新版規則進行後續分析。
+
+
+33. 版本進版與規則整併原則
+- 使用者要求「進版」時，不可只新增補充條文。
+- 必須以最新版本注意事項為母版進行整併。
+- 新增規則前需檢查：
+  1) 是否與既有規則重複。
+  2) 是否與既有規則矛盾。
+  3) 是否會造成分析優先順序衝突。
+  4) 是否應修改舊規則而非新增規則。
+- 若有重複內容，應直接整合至原章節，不保留重複敘述。
+- 若有矛盾內容，應以最新確認版本覆蓋舊規則，並同步修正相關章節。
+- 每次進版後需輸出完整新版注意事項，不可只輸出增量內容。
+- 分析時一律以最新版本注意事項為唯一依據。
+
+34. 同RW CP比較強化規則
+- CP主因判斷必須優先以同RW比較為準，不可直接以同BL CP差異下結論。
+- RW接近(差異<±1kg)時，可直接比較同BL CP差異。
+- RW不接近時，必須建立OK組CP-RW參考曲線或同RW對照資料後再比較。
+- 分析結果需列出「CP_NG − CP_OK@同RW」差值範圍。
+- 同RW CP差異的可信度高於同BL CP差異。
+- 若同RW下CP持續偏低或偏高超過約3以上，應優先列為Body主特徵並追查Gap、堝位或CP控制原因。
+- 報告中應優先寫「同RW下CP較OK低(或高)約X~Y」，而非僅列出不同BL的CP差異。
+
+
+================================================================
+29. 分析執行順序（強制規則）_260611_01
+================================================================
+
+本章優先權高於所有後續章節。
+
+分析任何 CSV、TXT、Excel、ZIP 長晶紀錄時，必須依照下列順序執行，不得跳步。
+
+Step1 全紀錄總覽
+Step2 引晶次與晶棒支次判定
+Step3 最後一次長晶狀態確認
+Step4 Neck檢查
+Step5 Crown檢查
+Step6 Shoulder檢查
+Step7 Body分析
+Step8 根因判定
+Step9 對策分析
+
+未完成前一步驟，禁止進入下一步。
+
+================================================================
+30. 禁止事項（強制規則）_260611_01
+================================================================
+
+以下情況視為分析錯誤，必須退回重新分析：
+
+1. 未完成工序切分前，禁止進行Body分析。
+2. 未完成引晶次與晶棒支次判定前，禁止輸出第1支、第2支、第3支晶棒等描述。
+3. 未確認TAIL、TAKE OUT、MELT BACK前，禁止判定OK棒、NG棒或OK組。
+4. NLA未檢查前，禁止進行Body根因分析。
+5. 若NLA未達299，禁止直接判定GR_mean、Power、BPUL、BTPL、CP為主因；必須先提示「Neck條件未完成，Body分析可信度下降」。
+6. Neck存在回插、BL回退、NLA回退、多次重新接觸液面時，禁止直接判定Body主因。
+7. Dia或temp29不連續時，禁止直接判定PIDSL、BTPL、過冷或過熱；必須先提示CCD量測有效性風險。
+8. Crown訊號不可信時，禁止直接把Body BL0視為真實轉接狀態。
+9. 未完成Neck、Crown、Shoulder檢查前，禁止直接從Body開始分析。
+10. 分析順序若不是「全紀錄→引晶次→Neck→Crown→Shoulder→Body→根因→對策」，視為分析流程錯誤。
+
+================================================================
+31. 分析優先權（強制規則）_260611_01
+================================================================
+
+Level 1
+工序切分、引晶次、晶棒支次
+
+Level 2
+Neck、NLA、回插、BL回退
+
+Level 3
+Crown、Dia連續性、temp29連續性
+
+Level 4
+Shoulder
+
+Level 5
+Body
+
+Level 6
+GR_mean、Power、BPUL、BPLL、BTPL
+
+Level 7
+對策
+
+禁止跳級分析。
+
+補充：
+本規則適用於CSV、TXT、Excel、ZIP等所有長晶紀錄檔案，不限於ZIP。
+
+
+================================================================
+32. 分析完成檢查表（Analysis Checklist）_260611_03
+================================================================
+
+完成分析前必須逐項確認：
+
+□ 已完成全工時整理
+□ 已完成工序切分
+□ 已完成引晶次判定
+□ 已完成晶棒支次判定
+□ 已確認TAIL / TAKE OUT / MELT BACK
+□ 已確認最後一次長晶狀態
+□ 已完成Neck分析
+□ 已完成NLA檢查
+□ 已完成回插檢查
+□ 已完成BL回退檢查
+□ 已完成Dia連續性檢查
+□ 已完成temp29連續性檢查
+□ 已完成Crown分析
+□ 已完成Shoulder分析
+□ 已完成Body分析
+□ 已列出Body代表點比較
+□ 已完成根因判定
+□ 已完成對策分析
+
+若缺少任何一項，需標示：
+「分析未完成，結論可信度下降」。
+
+================================================================
+33. 常見分析錯誤範例_260611_03
+================================================================
+
+錯誤案例1：
+直接從Body開始分析。
+處置：退回重新分析。
+
+錯誤案例2：
+未檢查NLA即判定BTPL、BPUL、Power主因。
+處置：退回重新分析。
+
+錯誤案例3：
+NLA未達299即判定Body主因。
+處置：先判定Neck條件未完成。
+
+錯誤案例4：
+將MELT BACK計為晶棒支次。
+處置：修正為引晶失敗。
+
+錯誤案例5：
+將未完成紀錄直接判定為NG棒。
+處置：標示紀錄未完整。
+
+錯誤案例6：
+Dia/temp29不連續卻直接判定PIDSL異常。
+處置：先確認CCD量測有效性。
+
+錯誤案例7：
+未切分同爐多次引晶。
+處置：重新建立時間軸與引晶次。
+
+================================================================
+34. 固定輸出格式_260611_03
+================================================================
+
+所有CSV、TXT、Excel、ZIP分析，預設輸出格式如下：
+
+Step1 全紀錄總覽
+- 總工時
+- 工序摘要
+
+Step2 引晶次與晶棒支次
+- 引晶次數
+- 晶棒支次
+- TAIL
+- TAKE OUT
+- MELT BACK
+
+Step3 最後一次長晶狀態
+
+Step4 Neck分析
+- NLA
+- 回插
+- BL回退
+- Dia/temp29
+
+Step5 Crown分析
+- Dia連續性
+- temp29連續性
+- Crown end狀態
+
+Step6 Shoulder分析
+- Shoulder end Dia
+- 轉Body合理性
+
+Step7 Body分析
+- BL代表點比較
+- RW
+- CP
+- GR_mean
+- Dia-DTT
+- Power
+- BPUL
+- BPLL
+- Pressure
+- Throttle
+
+Step8 根因判定
+
+Step9 對策建議
+
+若缺少任何Step，需註明原因。

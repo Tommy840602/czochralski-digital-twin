@@ -53,7 +53,7 @@ resilience4j:
   timelimiter:
     instances:
       defaultCB:
-        timeout-duration: 10s
+        timeout-duration: 120s
   circuitbreaker:
     instances:
       defaultCB:

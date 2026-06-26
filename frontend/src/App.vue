@@ -17,6 +17,9 @@
         <RouterLink to="/dashboard" class="nav-link" active-class="nav-link--active">
           <span class="nav-icon">◈</span> 儀表板
         </RouterLink>
+        <RouterLink to="/reports" class="nav-link" active-class="nav-link--active">
+          <span class="nav-icon">▤</span> 報告生成
+        </RouterLink>
       </nav>
 
       <div class="topnav-right">

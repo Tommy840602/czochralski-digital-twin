@@ -1,10 +1,12 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import TwinView    from '@/views/TwinView.vue'
 import DashboardView from '@/views/DashboardView.vue'
+import ReportView from '@/views/ReportView.vue'
 
 const routes = [
   { path: '/',        name: 'twin',    component: TwinView,    meta: { title: '數位孿生' } },
   { path: '/dashboard', name: 'dashboard', component: DashboardView, meta: { title: '儀表板' } },
+  { path: '/reports', name: 'reports', component: ReportView, meta: { title: '分析報告' } },
   { path: '/:pathMatch(.*)*', redirect: '/' }
 ]
 

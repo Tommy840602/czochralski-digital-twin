@@ -11,6 +11,7 @@ export default defineConfig({
   },
   define: { global: 'globalThis' },
   server: {
+    warmup: { clientFiles: ['./src/views/DashboardView.vue', './src/components/section/SectionScene.vue'] },
     port: 5173,
     proxy: {
       '/api': {
