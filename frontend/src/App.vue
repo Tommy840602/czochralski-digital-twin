@@ -1,65 +1,104 @@
 <template>
-  <div class="app-shell">
-    <!-- ── 頂部導覽列 ─────────────────────────────────────── -->
-    <header class="topnav">
-      <div class="topnav-left">
-        <div class="logo-mark">DEMO</div>
-        <div class="brand">
-          <span class="brand-title mono">CZOCHRALSKI TWIN</span>
-          <span class="brand-sub">長晶爐數位孿生系統</span>
+  <!-- 戰情室大門包住整個 app，門關著時 app 在背後 boot，ready 後開門淡出 -->
+  <ControlRoomDoor
+    :phase="phase"
+    :progress="progress"
+    :stage="stage"
+    :status-label="statusLabel"
+    :error="error"
+    @enter="enter"
+    @retry="retry(tasks)"
+  >
+    <div class="app-shell">
+      <!-- ── 頂部導覽列 ─────────────────────────────────────── -->
+      <header class="topnav">
+        <div class="topnav-left">
+          <div class="logo-mark">DEMO</div>
+          <div class="brand">
+            <span class="brand-title mono">CZOCHRALSKI TWIN</span>
+            <span class="brand-sub">長晶爐數位孿生系統</span>
+          </div>
         </div>
-      </div>
 
-      <nav class="topnav-links">
-        <RouterLink to="/" class="nav-link" active-class="nav-link--active">
-          <span class="nav-icon">⬡</span> 數位孿生
-        </RouterLink>
-        <RouterLink to="/dashboard" class="nav-link" active-class="nav-link--active">
-          <span class="nav-icon">◈</span> 儀表板
-        </RouterLink>
-        <RouterLink to="/reports" class="nav-link" active-class="nav-link--active">
-          <span class="nav-icon">▤</span> 報告生成
-        </RouterLink>
-      </nav>
+        <nav class="topnav-links">
+          <RouterLink to="/" class="nav-link" active-class="nav-link--active">
+            <span class="nav-icon">⬡</span> 數位孿生
+          </RouterLink>
+          <RouterLink to="/dashboard" class="nav-link" active-class="nav-link--active">
+            <span class="nav-icon">◈</span> 儀表板
+          </RouterLink>
+          <RouterLink to="/reports" class="nav-link" active-class="nav-link--active">
+            <span class="nav-icon">▤</span> 報告生成
+          </RouterLink>
+        </nav>
 
-      <div class="topnav-right">
-        <!-- 爐子計數 -->
-        <div class="stat-pill">
-          <span class="stat-val mono">{{ store.furnaces.length }}</span>
-          <span class="stat-lbl">爐</span>
+        <div class="topnav-right">
+          <!-- 爐子計數 -->
+          <div class="stat-pill">
+            <span class="stat-val mono">{{ store.furnaces.length }}</span>
+            <span class="stat-lbl">爐</span>
+          </div>
+          <!-- WS 狀態 -->
+          <div class="ws-indicator" :class="store.wsConnected ? 'ws--live' : 'ws--off'">
+            <span class="ws-dot"></span>
+            <span class="mono">{{ store.wsConnected ? 'LIVE' : 'OFFLINE' }}</span>
+          </div>
         </div>
-        <!-- WS 狀態 -->
-        <div class="ws-indicator" :class="store.wsConnected ? 'ws--live' : 'ws--off'">
-          <span class="ws-dot"></span>
-          <span class="mono">{{ store.wsConnected ? 'LIVE' : 'OFFLINE' }}</span>
-        </div>
-      </div>
-    </header>
+      </header>
 
-    <!-- ── 主體 ───────────────────────────────────────────── -->
-    <main class="app-body">
-      <RouterView v-slot="{ Component }">
-        <Transition name="fade" mode="out-in">
-          <component :is="Component" />
-        </Transition>
-      </RouterView>
-    </main>
-  </div>
+      <!-- ── 主體 ───────────────────────────────────────────── -->
+      <main class="app-body">
+        <RouterView v-slot="{ Component }">
+          <Transition name="fade" mode="out-in">
+            <component :is="Component" />
+          </Transition>
+        </RouterView>
+      </main>
+    </div>
+  </ControlRoomDoor>
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { onMounted, watch } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 import { useFurnaceStore } from '@/stores/furnaceStore.js'
 import { useFurnaceWebSocket } from '@/composables/useFurnaceWebSocket.js'
+import ControlRoomDoor from '@/components/ControlRoomDoor.vue'
+import { useDigitalTwinBoot } from '@/composables/useDigitalTwinBoot.js'
 
 const store = useFurnaceStore()
 const { resubscribe } = useFurnaceWebSocket()
+const { phase, progress, stage, statusLabel, error, boot, enter, retry } =
+  useDigitalTwinBoot()
 
-onMounted(async () => {
-  await store.loadFurnaces()
-  resubscribe()   // 爐子載入後補訂各個 topic
-})
+// ── 把 boot 的三個里程碑對接到真實 store 訊號 ──
+const tasks = {
+  // 1) 場景就緒：載入爐子清單（這是 dashboard / 場景的資料前提）
+  initScene: async () => {
+    await store.loadFurnaces()
+    resubscribe()              // 爐子載入後補訂各 topic（原本 onMounted 做的事）
+  },
+  // 2) 連線建立：等 WebSocket（STOMP onConnect 把 store.wsConnected 設 true）
+  connectWs: () => waitFor(() => store.wsConnected, 15000),
+  // 3) 資料載入：等第一批爐況進 liveData
+  firstData: () => waitFor(() => Object.keys(store.liveData).length > 0, 15000),
+}
+
+/**
+ * 等某個條件變真；附超時保險，避免後端慢時門永遠不開。
+ * 超時就 resolve（門照開，避免卡死），不 reject。
+ */
+function waitFor(cond, timeoutMs = 15000) {
+  return new Promise((resolve) => {
+    if (cond()) return resolve()
+    const stop = watch(cond, (v) => {
+      if (v) { stop(); resolve() }
+    })
+    setTimeout(() => { stop(); resolve() }, timeoutMs)
+  })
+}
+
+onMounted(() => boot(tasks))
 </script>
 
 <style scoped>
