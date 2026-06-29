@@ -9,6 +9,7 @@
       </div>
       <div class="rv-bar-right">
         <span class="rv-progress mono">{{ doneCount }}/{{ ids.length }} 完成</span>
+        <span v-if="cooldownLabel" class="cooldown">{{ cooldownLabel }}</span>
         <button class="rv-btn" :disabled="doneCount === 0 || downloadingAll" @click="downloadAll">
           {{ downloadingAll ? '打包中…' : '下載全部 .docx' }}
         </button>
@@ -107,6 +108,8 @@ const reports   = reactive({})        // { id: { status, data, error } }
 const selected  = ref(null)
 const downloading    = ref(null)
 const downloadingAll = ref(false)
+const generatingAll=ref(false)
+const cooldownLabel=ref('')
 let kicked = false                    // 避免重複觸發全生成
 
 const cur        = computed(() => selected.value ? reports[selected.value] : null)
@@ -147,21 +150,40 @@ async function generateOne(id, attempt = 1) {
   }
 }
 
-// 序列化生成所有爐子：一個一個來，避免一次撞爆 OpenAI TPM 上限
-let running = false
+//generateAll 加「每爐間隔」避免撞 TPM 限流
+//  單發 ~16626 token，TPM 上限 30000 → 一分鐘只能跑 1.x 發
+//  → 每爐之間等 GAP_MS 讓 TPM 回血，五發序列雖慢但都會成功
+const GAP_MS = 40000   // 每爐之間間隔（毫秒）。TPM 30000、單發16626 → 40s 保險
+
 async function generateAll() {
-  if (running) return
-  running = true
+  generatingAll.value = true
   try {
-    for (const id of ids.value) {
-      try {
-        await generateOne(id)
-      } catch {
-        // 單一爐子失敗不中斷其他爐子（狀態已記在 reports[id]）
+    const list = ids.value
+    for (let i = 0; i < list.length; i++) {
+      const id = list[i]
+
+      // 生成這一爐（generateOne 內已含 429 退避重試）
+      await generateOne(id)
+
+      // 最後一爐不用等
+      if (i < list.length - 1) {
+        // 顯示倒數，讓使用者知道不是卡住，是在等 TPM 回血
+        let remain = Math.ceil(GAP_MS / 1000)
+        // 把下一爐標記成「排隊中」狀態（可選，看你的狀態結構）
+        const nextId = list[i + 1]
+        if (reports[nextId]) reports[nextId].status = 'queued'
+
+        while (remain > 0) {
+          cooldownLabel.value = `避免限流，${remain}s 後生成 ${nextId}…`
+          await sleep(1000)
+          remain--
+        }
+        cooldownLabel.value = ''
       }
     }
   } finally {
-    running = false
+    generatingAll.value = false
+    cooldownLabel.value = ''
   }
 }
 
@@ -276,5 +298,10 @@ onMounted(() => { if (!kicked && ids.value.length) { kicked = true; generateAll(
 .rep-rec { margin: 0; padding-left: 20px; }
 .rep-rec li { font-size: 13px; line-height: 1.6; color: var(--text-1); margin-bottom: 4px; }
 .rep-foot { font-size: 10px; color: var(--text-2); margin-top: 22px; padding-top: 10px; border-top: 1px solid var(--border); }
+.cooldown {
+  font-size: 12px;
+  color: var(--text-2);
+  margin-left: 12px;
+}
 </style>
 

@@ -87,7 +87,7 @@ onMounted(() => {
                 fill="#2df0ff" stroke="#d8fdff" stroke-width="1.5" class="ingot"/>
         </svg>
       </div>
-
+DOCKE
       <!-- 右門 -->
       <div class="door door-r" aria-hidden="true">
         <div class="seam-edge"></div>
