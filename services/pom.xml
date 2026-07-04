@@ -19,6 +19,7 @@
         <module>furnace-service</module>
         <module>alarm-service</module>
         <module>twin-state-service</module>
+        <module>auth-service</module>
     </modules>
 
     <parent>

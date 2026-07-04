@@ -1,0 +1,101 @@
+server:
+  port: 8093
+
+spring:
+  application:
+    name: auth-service
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+  datasource:
+    # 預設指向本機 TimescaleDB（host port 5433）方便 IntelliJ 直跑；
+    # docker-compose 會用環境變數覆寫成 service 名稱與 5432。
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5433}/${DB_NAME:authdb}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASS:postgres}
+  mail:
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+  security:
+    oauth2:
+      client:
+        registration:
+          github:
+            client-id: ${GITHUB_CLIENT_ID:}
+            client-secret: ${GITHUB_CLIENT_SECRET:}
+            scope: read:user, user:email
+            redirect-uri: "http://localhost:8085/login/oauth2/code/github"
+          google:
+            client-id: ${GOOGLE_CLIENT_ID:}
+            client-secret: ${GOOGLE_CLIENT_SECRET:}
+            scope: openid, profile, email
+            redirect-uri: "http://localhost:8085/login/oauth2/code/google"
+          azure:
+            client-id: ${AZURE_CLIENT_ID:}
+            client-secret: ${AZURE_CLIENT_SECRET:}
+            scope: openid, profile, email
+            authorization-grant-type: authorization_code
+            redirect-uri: "http://localhost:8085/login/oauth2/code/azure"
+        provider:
+          azure:
+            authorization-uri: https://login.microsoftonline.com/${AZURE_TENANT_ID:common}/oauth2/v2.0/authorize
+            token-uri: https://login.microsoftonline.com/${AZURE_TENANT_ID:common}/oauth2/v2.0/token
+            user-info-uri: https://graph.microsoft.com/oidc/userinfo
+            user-name-attribute: sub
+            jwk-set-uri: https://login.microsoftonline.com/common/discovery/v2.0/keys
+  jpa:
+    hibernate:
+      ddl-auto: update          # 開發用；上 prod 換 Flyway，ddl-auto 改 validate
+    defer-datasource-initialization: true   # 讓 Hibernate 先建表，data.sql 再 seed
+    open-in-view: false
+    properties:
+      hibernate.format_sql: true
+    show-sql: false
+
+  sql:
+    init:
+      mode: always              # 每次啟動跑 data.sql（內含 ON CONFLICT DO NOTHING，冪等）
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URI:http://localhost:8761/eureka}
+    register-with-eureka: ${EUREKA_ENABLED:true}
+    fetch-registry: ${EUREKA_ENABLED:true}
+
+app:
+  jwt:
+    # 上 prod 從 Config server / 環境變數注入，且務必 >= 32 字元
+    secret: ${JWT_SECRET}
+    access-ttl-min: ${JWT_ACCESS_TTL_MIN:15}
+    refresh-ttl-days: ${JWT_REFRESH_TTL_DAYS:7}
+  sms:
+    provider: ${SMS_PROVIDER:log}
+    twilio:
+      account-sid: ${TWILIO_ACCOUNT_SID:}
+      auth-token: ${TWILIO_AUTH_TOKEN:}
+      from: ${TWILIO_FROM_NUMBER:}
+  email:
+    provider: ${EMAIL_PROVIDER:log}
+    from: ${EMAIL_FROM:no-reply@twin.local}
+  recaptcha:
+    secret: ${RECAPTCHA_SECRET:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+logging:
+  level:
+    org.springframework.security: DEBUG
+    org.springframework.web: DEBUG

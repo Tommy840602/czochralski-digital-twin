@@ -14,7 +14,12 @@ venv/
 # Node
 node_modules/
 dist/
+
+# 環境變數（真值）
 .env
+.env.local
+!.env.example
+!frontend/.env.development
 
 # IDE
 .idea/
@@ -29,8 +34,6 @@ infra/elasticsearch/data/
 # 大型檔案
 *.csv
 data/
-docker-compose.yml.bak
-docker-compose.yml.bak
 
-# 真實 key
-.env
+# 備份
+docker-compose.yml.bak

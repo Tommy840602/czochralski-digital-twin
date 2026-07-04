@@ -1,6 +1,10 @@
 <template>
-  <!-- 戰情室大門包住整個 app，門關著時 app 在背後 boot，ready 後開門淡出 -->
+  <!-- 認證頁（登入/註冊/忘記/重設/OAuth callback）：不套戰情室大門，只渲染表單 -->
+  <RouterView v-if="isAuthPage" />
+
+  <!-- 其餘：原本的戰情室大門 + app 框架 -->
   <ControlRoomDoor
+    v-else
     :phase="phase"
     :progress="progress"
     :stage="stage"
@@ -43,6 +47,11 @@
             <span class="ws-dot"></span>
             <span class="mono">{{ store.wsConnected ? 'LIVE' : 'OFFLINE' }}</span>
           </div>
+          <!-- 使用者 + 登出 -->
+          <div class="user-box">
+            <span class="user-name mono">{{ auth.username }}</span>
+            <button class="logout-btn" @click="logout">登出</button>
+          </div>
         </div>
       </header>
 
@@ -59,12 +68,20 @@
 </template>
 
 <script setup>
-import { onMounted, watch } from 'vue'
-import { RouterLink, RouterView } from 'vue-router'
+import { onMounted, watch, computed, ref } from 'vue'
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { useFurnaceStore } from '@/stores/furnaceStore.js'
 import { useFurnaceWebSocket } from '@/composables/useFurnaceWebSocket.js'
 import ControlRoomDoor from '@/components/ControlRoomDoor.vue'
 import { useDigitalTwinBoot } from '@/composables/useDigitalTwinBoot.js'
+import { useAuthStore } from '@/stores/auth'
+
+const route = useRoute()
+const router = useRouter()
+const auth = useAuthStore()
+
+const isAuthPage = computed(() =>
+  ['login', 'register', 'forgot', 'oauth-callback', 'reset-password'].includes(route.name))
 
 const store = useFurnaceStore()
 const { resubscribe } = useFurnaceWebSocket()
@@ -73,21 +90,14 @@ const { phase, progress, stage, statusLabel, error, boot, enter, retry } =
 
 // ── 把 boot 的三個里程碑對接到真實 store 訊號 ──
 const tasks = {
-  // 1) 場景就緒：載入爐子清單（這是 dashboard / 場景的資料前提）
   initScene: async () => {
     await store.loadFurnaces()
-    resubscribe()              // 爐子載入後補訂各 topic（原本 onMounted 做的事）
+    resubscribe()
   },
-  // 2) 連線建立：等 WebSocket（STOMP onConnect 把 store.wsConnected 設 true）
   connectWs: () => waitFor(() => store.wsConnected, 15000),
-  // 3) 資料載入：等第一批爐況進 liveData
   firstData: () => waitFor(() => Object.keys(store.liveData).length > 0, 15000),
 }
 
-/**
- * 等某個條件變真；附超時保險，避免後端慢時門永遠不開。
- * 超時就 resolve（門照開，避免卡死），不 reject。
- */
 function waitFor(cond, timeoutMs = 15000) {
   return new Promise((resolve) => {
     if (cond()) return resolve()
@@ -98,7 +108,23 @@ function waitFor(cond, timeoutMs = 15000) {
   })
 }
 
-onMounted(() => boot(tasks))
+// ── boot 只在「已登入且不在認證頁」時跑（避免未登入就打 /furnaces 被 401 卡住門）──
+const booted = ref(false)
+function maybeBoot() {
+  if (booted.value || isAuthPage.value || !auth.isAuthenticated) return
+  booted.value = true
+  boot(tasks)
+}
+
+function logout() {
+  auth.logout()
+  booted.value = false        // 允許下次登入重新 boot
+  router.push({ name: 'login' })
+}
+
+onMounted(maybeBoot)
+watch(() => auth.isAuthenticated, maybeBoot)
+watch(isAuthPage, maybeBoot)
 </script>
 
 <style scoped>
@@ -199,6 +225,22 @@ onMounted(() => boot(tasks))
 .ws--live .ws-dot {
   animation: pulse 2s ease-in-out infinite;
 }
+
+/* ── 使用者 + 登出 ───────────────────────────────────────── */
+.user-box {
+  display: flex; align-items: center; gap: 8px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+}
+.user-name { font-size: 12px; color: var(--text-1); }
+.logout-btn {
+  padding: 4px 10px;
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 11px; color: var(--text-1); cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.logout-btn:hover { border-color: var(--red); color: var(--red); }
 
 /* ── Main ────────────────────────────────────────────────── */
 .app-body {

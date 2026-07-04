@@ -1,0 +1,21 @@
+# ── 貼進 docker-compose.yml 的 services: 底下 ──────────────────────
+# timescaledb / eureka 這兩個 service 名稱請改成你 compose 裡實際的名字
+  auth-service:
+    build: ./services/auth-service
+    image: tommy840602/czochralski-auth-service:latest
+    container_name: auth-service
+    depends_on:
+      - timescaledb
+      - eureka
+    environment:
+      DB_HOST: timescaledb
+      DB_PORT: "5432"
+      DB_NAME: authdb
+      DB_USER: postgres
+      DB_PASS: postgres
+      EUREKA_URI: http://eureka:8761/eureka
+      EUREKA_ENABLED: "true"
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me-please-32bytes-minimum-secret}
+    ports:
+      - "8093:8093"
+    restart: unless-stopped

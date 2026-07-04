@@ -591,6 +591,7 @@ services:
       - SPRING_PROFILES_ACTIVE=docker
       - SPRING_CONFIG_IMPORT=optional:configserver:http://twin-config:8888
       - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://twin-eureka:8761/eureka/
+      - JWT_SECRET=${JWT_SECRET}
     depends_on:
       eureka-server:
         condition: service_healthy
@@ -602,6 +603,58 @@ services:
       timeout: 5s
       retries: 30
       start_period: 120s
+
+  auth-service:
+    build: ./services/auth-service
+    image: tommy840602/czochralski-auth-service:latest
+    container_name: auth-service
+    depends_on:
+      - timescaledb
+      - eureka-server
+      - redis
+    environment:
+      DB_HOST: timescaledb
+      DB_PORT: "5432"
+      DB_NAME: authdb
+      DB_USER: twin
+      DB_PASS: twin_secret
+      EUREKA_URI: http://twin-eureka:8761/eureka
+      JWT_SECRET: ${JWT_SECRET}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REGISTER_SMS_REQUIRED: "true"
+      EMAIL_FROM: no-reply@twin.local
+      PWD_RESET_FRONTEND: http://localhost:5173/reset-password
+      OAUTH_REDIRECT_BASE: http://localhost:8085
+      OAUTH_FRONTEND_CALLBACK: http://localhost:5173/login/callback
+      OAUTH_FRONTEND_LOGIN: http://localhost:5173/login
+      # OAuth
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
+      AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET:-}
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:-common}
+      # SMS
+      SMS_PROVIDER: ${SMS_PROVIDER:-log}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
+      # Email
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-log}
+      MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      # reCAPTCHA
+      RECAPTCHA_SECRET: ${RECAPTCHA_SECRET:-}
+    ports:
+      - "8093:8093"
+    networks:
+      - twin-net
+    restart: unless-stopped
 
   frontend:
     build: frontend

@@ -11,7 +11,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.net.URLEncoder;
-
+import org.springframework.security.access.prepost.PreAuthorize;
 
 @RestController
 @RequestMapping("/furnaces")
@@ -26,6 +26,7 @@ public class ReportController {
 
     /** 生成分析報告（呼叫 LLM，回結構化 JSON 給前端顯示） */
     @PostMapping("/{id}/report")
+    @PreAuthorize("hasAuthority('REPORT_GEN')")
     public ResponseEntity<?> generate(@PathVariable String id) {
         try {
             return ResponseEntity.ok(reportService.generate(id));
@@ -40,6 +41,7 @@ public class ReportController {
 
     /** 由前端把已生成的報告 JSON 回傳，POI 產 .docx 下載（不再呼叫 LLM，確保與畫面一致） */
     @PostMapping("/reports/docx")
+    @PreAuthorize("hasAuthority('REPORT_GEN')")
     public ResponseEntity<byte[]> docx(@RequestBody ReportDto report) {
         byte[] bytes = docxService.build(report);
         String fname = "report_" + safe(report.furnaceId) + "_" + System.currentTimeMillis() + ".docx";
@@ -53,6 +55,7 @@ public class ReportController {
     }
 
     @PostMapping("/reports/zip")
+    @PreAuthorize("hasAuthority('REPORT_GEN')")
     public ResponseEntity<byte[]> downloadZip(@RequestBody List<ReportDto> reports) throws Exception {
         if (reports == null || reports.isEmpty()) {
             return ResponseEntity.badRequest().build();
