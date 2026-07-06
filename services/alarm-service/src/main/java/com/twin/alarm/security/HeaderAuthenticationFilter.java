@@ -18,13 +18,12 @@ public class HeaderAuthenticationFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
             throws ServletException, IOException {
-
         String username = req.getHeader("X-User-Name");
+        // 有 X-User-Name 才建 authentication、沒有就繼續 chain（讓 permitAll 生效）
         if (username != null && !username.isBlank()) {
             List<SimpleGrantedAuthority> auths = new ArrayList<>();
             addAll(auths, req.getHeader("X-User-Roles"), "ROLE_");
             addAll(auths, req.getHeader("X-User-Perms"), "");
-
             UsernamePasswordAuthenticationToken token =
                     new UsernamePasswordAuthenticationToken(username, null, auths);
             SecurityContextHolder.getContext().setAuthentication(token);

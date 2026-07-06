@@ -18,6 +18,18 @@ spring:
             - Path=/api/alarms/**
           filters:
             - StripPrefix=1
+        - id: alarm-spc
+          uri: http://alarm-service:8092
+          predicates:
+            - Path=/api/spc/**
+          filters:
+            - StripPrefix=1
+        - id: alarm-oee
+          uri: http://alarm-service:8092
+          predicates:
+            - Path=/api/oee/**
+          filters:
+            - StripPrefix=1
         - id: furnace-ws
           uri: lb:ws://furnace-service
           predicates:

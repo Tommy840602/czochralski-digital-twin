@@ -13,7 +13,7 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      // /api/auth/*, /api/oauth2/*, /api/login/* → 剝掉 /api 前綴（因為 gateway 的認證路由沒 /api）
+      // /api/auth/*, /api/oauth2/*, /api/login/* → 剝掉 /api 前綴
       '/api/auth': {
         target: 'http://localhost:8085',
         changeOrigin: true,
@@ -29,7 +29,7 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api/, '')
       },
-      // 其他 /api/**（furnaces / alarms / twin）保留 /api，讓 gateway 的 StripPrefix 處理
+      // 其他 /api/**（furnaces / alarms / twin / spc / oee）保留 /api，讓 gateway 的 StripPrefix 處理
       '/api': {
         target: 'http://localhost:8085',
         changeOrigin: true

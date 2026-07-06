@@ -566,22 +566,30 @@ services:
 
   alarm-service:
     build: ./services/alarm-service
+    image: tommy840602/czochralski-alarm-service:latest
     container_name: twin-alarm-service
     ports:
       - "8092:8092"
     environment:
-      - SPRING_PROFILES_ACTIVE=docker
-      - SPRING_CONFIG_IMPORT=optional:configserver:http://twin-config:8888
-      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://twin-eureka:8761/eureka/
-      - SPRING_KAFKA_BOOTSTRAP_SERVERS=twin-kafka:9093
+      DB_HOST: timescaledb
+      DB_PORT: "5432"
+      DB_NAME: furnace_db
+      DB_USER: twin
+      DB_PASS: twin_secret
+      EUREKA_URI: http://twin-eureka:8761/eureka
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9093
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_CONFIG_IMPORT: optional:configserver:http://twin-config:8888
     depends_on:
+      timescaledb:
+        condition: service_started
       eureka-server:
         condition: service_healthy
       kafka:
         condition: service_healthy
     networks:
       - twin-net
-
+    restart: unless-stopped
   api-gateway:
     build: ./services/api-gateway
     container_name: twin-api-gateway

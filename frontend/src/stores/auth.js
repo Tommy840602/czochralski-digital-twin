@@ -1,92 +1,177 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import api from '@/services/api' // 既有 axios instance（baseURL = VITE_API_URL = gateway 8085）
+import api from '@/services/api'
 
-const LS_KEY = 'twin.auth'
-
-function load() {
+function parseJwt(token) {
   try {
-    return JSON.parse(localStorage.getItem(LS_KEY)) || {}
+    const base64Url = token.split('.')[1]
+    if (!base64Url) return {}
+
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
+    const json = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    )
+
+    return JSON.parse(json)
   } catch {
     return {}
   }
 }
 
-export const useAuthStore = defineStore('auth', () => {
-  const saved = load()
-  const accessToken = ref(saved.accessToken || '')
-  const refreshToken = ref(saved.refreshToken || '')
-  const username = ref(saved.username || '')
-  const roles = ref(saved.roles || [])
+function readJsonArray(key) {
+  try {
+    const value = localStorage.getItem(key)
+    const parsed = value ? JSON.parse(value) : []
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
 
-  const isAuthenticated = computed(() => !!accessToken.value)
-  const hasRole = (r) => roles.value.includes(r)
-  const hasAnyRole = (list) => list.some((r) => roles.value.includes(r))
+export const useAuthStore = defineStore('auth', {
+  state: () => ({
+    accessToken: localStorage.getItem('accessToken') || '',
+    refreshToken: localStorage.getItem('refreshToken') || '',
+    username: localStorage.getItem('username') || '',
+    roles: readJsonArray('roles'),
+    perms: readJsonArray('perms')
+  }),
 
-  function persist() {
-    localStorage.setItem(
-      LS_KEY,
-      JSON.stringify({
-        accessToken: accessToken.value,
-        refreshToken: refreshToken.value,
-        username: username.value,
-        roles: roles.value,
+  getters: {
+    isAuthenticated: (s) => !!s.accessToken,
+
+    hasRole: (s) => (role) => {
+      return s.roles.includes(role) || s.roles.includes(`ROLE_${role}`)
+    },
+
+    isAdmin: (s) => {
+      return s.roles.includes('ADMIN') || s.roles.includes('ROLE_ADMIN')
+    },
+
+    isEngineer: (s) => {
+      return (
+        s.roles.includes('ENGINEER') ||
+        s.roles.includes('ROLE_ENGINEER') ||
+        s.roles.includes('ADMIN') ||
+        s.roles.includes('ROLE_ADMIN')
+      )
+    },
+
+    hasPermission: (s) => (perm) => {
+      if (!perm) return true
+
+      const isAdmin =
+        s.roles.includes('ADMIN') ||
+        s.roles.includes('ROLE_ADMIN')
+
+      if (isAdmin) return true
+
+      return Array.isArray(s.perms) && s.perms.includes(perm)
+    },
+
+    hasAllPermissions: (s) => (requiredPerms) => {
+      if (!Array.isArray(requiredPerms) || requiredPerms.length === 0) {
+        return true
+      }
+
+      const isAdmin =
+        s.roles.includes('ADMIN') ||
+        s.roles.includes('ROLE_ADMIN')
+
+      if (isAdmin) return true
+
+      return requiredPerms.every(perm => s.perms.includes(perm))
+    },
+
+    hasAnyPermission: (s) => (requiredPerms) => {
+      if (!Array.isArray(requiredPerms) || requiredPerms.length === 0) {
+        return true
+      }
+
+      const isAdmin =
+        s.roles.includes('ADMIN') ||
+        s.roles.includes('ROLE_ADMIN')
+
+      if (isAdmin) return true
+
+      return requiredPerms.some(perm => s.perms.includes(perm))
+    }
+  },
+
+  actions: {
+    setSession(accessToken, refreshToken, username, roles = null, perms = null) {
+      this.accessToken = accessToken || ''
+      this.refreshToken = refreshToken || ''
+      this.username = username || ''
+
+      const claims = accessToken ? parseJwt(accessToken) : {}
+
+      this.roles = Array.isArray(roles)
+        ? roles
+        : Array.isArray(claims.roles)
+          ? claims.roles
+          : []
+
+      this.perms = Array.isArray(perms)
+        ? perms
+        : Array.isArray(claims.perms)
+          ? claims.perms
+          : []
+
+      localStorage.setItem('accessToken', this.accessToken)
+      localStorage.setItem('refreshToken', this.refreshToken)
+      localStorage.setItem('username', this.username)
+      localStorage.setItem('roles', JSON.stringify(this.roles))
+      localStorage.setItem('perms', JSON.stringify(this.perms))
+    },
+
+    async login(usernameOrEmail, password) {
+      const { data } = await api.post('/auth/login', {
+        usernameOrEmail,
+        password
       })
-    )
-  }
 
-  function setSession(data) {
-    accessToken.value = data.accessToken
-    refreshToken.value = data.refreshToken
-    username.value = data.username
-    roles.value = data.roles || []
-    persist()
-  }
+      this.setSession(
+        data.accessToken,
+        data.refreshToken,
+        data.username,
+        data.roles,
+        data.perms
+      )
 
-  function clear() {
-    accessToken.value = ''
-    refreshToken.value = ''
-    username.value = ''
-    roles.value = []
-    localStorage.removeItem(LS_KEY)
-  }
+      return data
+    },
 
-  async function login(usernameOrEmail, password) {
-    const { data } = await api.post('/auth/login', { usernameOrEmail, password })
-    setSession(data)
-    return data
-  }
+    async refresh() {
+      const { data } = await api.post('/auth/refresh', {
+        refreshToken: this.refreshToken
+      })
 
-  async function register(payload) {
-    // payload: { username, email, password, phone }
-    const { data } = await api.post('/auth/register', payload)
-    setSession(data)
-    return data
-  }
+      this.setSession(
+        data.accessToken,
+        data.refreshToken,
+        data.username,
+        data.roles,
+        data.perms
+      )
 
-  async function refresh() {
-    if (!refreshToken.value) throw new Error('no refresh token')
-    const { data } = await api.post('/auth/refresh', { refreshToken: refreshToken.value })
-    setSession(data)
-    return data
-  }
+      return data
+    },
 
-  function logout() {
-    clear()
-  }
+    logout() {
+      this.accessToken = ''
+      this.refreshToken = ''
+      this.username = ''
+      this.roles = []
+      this.perms = []
 
-  return {
-    accessToken,
-    refreshToken,
-    username,
-    roles,
-    isAuthenticated,
-    hasRole,
-    hasAnyRole,
-    login,
-    register,
-    refresh,
-    logout,
-    setSession,
+      localStorage.removeItem('accessToken')
+      localStorage.removeItem('refreshToken')
+      localStorage.removeItem('username')
+      localStorage.removeItem('roles')
+      localStorage.removeItem('perms')
+    }
   }
 })

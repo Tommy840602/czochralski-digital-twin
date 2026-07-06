@@ -6,13 +6,30 @@ spring:
     name: alarm-service
   config:
     import: "optional:configserver:http://localhost:8888"
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5433}/${DB_NAME:furnace_db}
+    username: ${DB_USER:twin}
+    password: ${DB_PASS:twin_secret}
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+    show-sql: false
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    listener:
+      auto-startup: true
     consumer:
-      group-id: alarm-service-group
+      group-id: alarm-service-v2
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
   data:
     mongodb:
       uri: mongodb://twin:twin_secret@localhost:27017/twin_db?authSource=admin
@@ -24,7 +41,9 @@ slack:
 eureka:
   client:
     service-url:
-      defaultZone: http://localhost:8761/eureka/
+      defaultZone: ${EUREKA_URI:http://localhost:8761/eureka}
+    register-with-eureka: ${EUREKA_ENABLED:true}
+    fetch-registry: ${EUREKA_ENABLED:true}
 
 management:
   endpoints:
@@ -39,4 +58,5 @@ management:
 
 logging:
   level:
-    com.twin: DEBUG
+    com.twin.alarm: INFO
+    org.springframework.kafka: WARN

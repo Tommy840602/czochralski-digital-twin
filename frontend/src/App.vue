@@ -19,8 +19,8 @@
         <div class="topnav-left">
           <div class="logo-mark">DEMO</div>
           <div class="brand">
-            <span class="brand-title mono">CZOCHRALSKI TWIN</span>
-            <span class="brand-sub">長晶爐數位孿生系統</span>
+            <span class="brand-title mono">CZ Digital Twin Sys</span>
+            <span class="brand-sub">CZ數位孿生系統</span>
           </div>
         </div>
 
@@ -33,6 +33,20 @@
           </RouterLink>
           <RouterLink to="/reports" class="nav-link" active-class="nav-link--active">
             <span class="nav-icon">▤</span> 報告生成
+          </RouterLink>
+          <RouterLink
+            v-if="auth.hasPermission('SPC_VIEW')"
+            to="/spc"
+            class="nav-link"
+          >
+            <span class="nav-icon">▧</span>SPC 監測
+          </RouterLink>
+          <RouterLink
+            v-if="auth.hasPermission('OEE_VIEW')"
+            to="/oee"
+            class="nav-link"
+          >
+            <span class="nav-icon">▣</span>OEE 分析
           </RouterLink>
         </nav>
 

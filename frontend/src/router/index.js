@@ -1,23 +1,64 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import TwinView from '@/views/TwinView.vue'
-import DashboardView from '@/views/DashboardView.vue'
-import ReportView from '@/views/ReportView.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const routes = [
-  // 受保護頁
-  { path: '/',          name: 'twin',      component: TwinView,      meta: { title: '數位孿生' } },
-  { path: '/dashboard', name: 'dashboard', component: DashboardView, meta: { title: '儀表板' } },
-  { path: '/reports',   name: 'reports',   component: ReportView,    meta: { title: '分析報告' } },
-
-  // 公開（認證）頁
-  { path: '/login',          name: 'login',          component: () => import('@/views/LoginView.vue'),          meta: { title: '登入',     public: true } },
-  { path: '/register',       name: 'register',       component: () => import('@/views/RegisterView.vue'),       meta: { title: '註冊',     public: true } },
-  { path: '/forgot',         name: 'forgot',         component: () => import('@/views/ForgotPasswordView.vue'), meta: { title: '忘記密碼', public: true } },
-  { path: '/reset-password', name: 'reset-password', component: () => import('@/views/ResetPasswordView.vue'),  meta: { title: '重設密碼', public: true } },
-  { path: '/login/callback', name: 'oauth-callback', component: () => import('@/views/OAuthCallbackView.vue'),  meta: { title: '登入中',   public: true } },
-
-  { path: '/:pathMatch(.*)*', redirect: '/' }
+  {
+    path: '/login',
+    name: 'login',
+    component: () => import('@/views/LoginView.vue'),
+    meta: { public: true, hideNav: true }
+  },
+  {
+    path: '/register',
+    name: 'register',
+    component: () => import('@/views/RegisterView.vue'),
+    meta: { public: true, hideNav: true }
+  },
+  {
+    path: '/forgot',
+    name: 'forgot',
+    component: () => import('@/views/ForgotPasswordView.vue'),
+    meta: { public: true, hideNav: true }
+  },
+  {
+    path: '/reset-password',
+    name: 'reset-password',
+    component: () => import('@/views/ResetPasswordView.vue'),
+    meta: { public: true, hideNav: true }
+  },
+  {
+    path: '/login/callback',
+    name: 'oauth-callback',
+    component: () => import('@/views/OAuthCallbackView.vue'),
+    meta: { public: true, hideNav: true }
+  },
+  {
+    path: '/',
+    name: 'twin',
+    component: () => import('@/views/TwinView.vue')
+  },
+  {
+    path: '/dashboard',
+    name: 'dashboard',
+    component: () => import('@/views/DashboardView.vue')
+  },
+  {
+    path: '/reports',
+    name: 'reports',
+    component: () => import('@/views/ReportView.vue')
+  },
+  {
+    path: '/spc',
+    name: 'spc',
+    component: () => import('@/views/SpcMonitorView.vue'),
+    meta: { requiresPerm: 'SPC_VIEW' }
+  },
+  {
+    path: '/oee',
+    name: 'oee',
+    component: () => import('@/views/OeeAnalysisView.vue'),
+    meta: { requiresPerm: 'OEE_VIEW' }
+  }
 ]
 
 const router = createRouter({
@@ -25,29 +66,25 @@ const router = createRouter({
   routes
 })
 
-const PUBLIC_NAMES = ['login', 'register', 'forgot', 'reset-password', 'oauth-callback']
-
-router.beforeEach((to) => {
-  document.title = `${to.meta.title ?? ''} — 長晶爐數位孿生系統`
-
+router.beforeEach((to, from, next) => {
   const auth = useAuthStore()
 
-  if (PUBLIC_NAMES.includes(to.name)) {
-    // 已登入就別再進登入頁
-    if (to.name === 'login' && auth.isAuthenticated) return { path: '/' }
-    return true
+  // Public routes 不用登入
+  if (to.meta.public) return next()
+
+  // 需要登入
+  if (!auth.accessToken) {
+    return next({ name: 'login', query: { redirect: to.fullPath } })
   }
 
-  if (!auth.isAuthenticated) {
-    return { name: 'login', query: { redirect: to.fullPath } }
+  // 檢查權限
+  if (to.meta.requiresPerm && !auth.hasPermission(to.meta.requiresPerm)) {
+    // 沒權限、導回首頁
+    console.warn(`[router] blocked ${to.path}, missing ${to.meta.requiresPerm}`)
+    return next({ name: 'twin' })
   }
 
-  // 頁面級 RBAC：route.meta.roles 存在時檢查
-  if (to.meta?.roles && !auth.hasAnyRole(to.meta.roles)) {
-    return { path: '/' }
-  }
-
-  return true
+  next()
 })
 
 export default router
