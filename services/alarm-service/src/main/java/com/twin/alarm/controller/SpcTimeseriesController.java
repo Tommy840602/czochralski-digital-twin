@@ -27,9 +27,6 @@ public class SpcTimeseriesController {
     @PersistenceContext
     private EntityManager em;
 
-    /**
-     * 拉某爐某參數的最近 N 分鐘所有資料點（給前端管制圖用）
-     */
     @GetMapping("/timeseries")
     @PreAuthorize("hasAuthority('SPC_VIEW')")
     public List<Map<String, Object>> timeseries(
@@ -42,14 +39,13 @@ public class SpcTimeseriesController {
             throw new IllegalArgumentException("Unknown paramName: " + paramName);
         }
 
-        // 每分鐘取一個平均值（降採樣、避免資料量太大）
         String sql = String.format(
                 "SELECT " +
                         "  time_bucket('30 seconds', time) AS ts, " +
                         "  AVG(%s) AS value " +
                         "FROM furnace_metrics " +
                         "WHERE furnace_id = ?1 " +
-                        "  AND time >= NOW() - INTERVAL '%d minutes' " +
+                        "  AND time >= (SELECT MAX(time) FROM furnace_metrics WHERE furnace_id = ?1) - INTERVAL '%d minutes' " +
                         "  AND %s IS NOT NULL " +
                         "GROUP BY ts " +
                         "ORDER BY ts ASC " +
