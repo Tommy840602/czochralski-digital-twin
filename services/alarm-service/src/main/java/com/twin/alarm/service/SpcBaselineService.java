@@ -58,6 +58,8 @@ public class SpcBaselineService {
         log.info("Baseline rebuild done");
     }
 
+    private static final double RUNNING_GATE_HEATER_TEMP = 500.0;
+
     @Transactional
     public SpcBaseline rebuild(String furnaceId, String paramName) {
         String column = PARAM_COLUMN.get(paramName);
@@ -65,25 +67,39 @@ public class SpcBaselineService {
             throw new IllegalArgumentException("Unknown paramName: " + paramName);
         }
 
-        // 動態組 SQL、只 whitelist 已知欄位（防 SQL injection）
-        String sql = String.format(
-                "SELECT AVG(%s), STDDEV(%s), COUNT(*) " +
-                        "FROM furnace_metrics " +
-                        "WHERE furnace_id = ?1 " +
-                        "  AND time >= NOW() - INTERVAL '7 days' " +
-                        "  AND %s IS NOT NULL",
-                column, column, column);
+        // 用 time_bucket 先降採樣成每分鐘平均值，避免對百萬級原始資料做 window function 排序
+        String sql = String.format("""
+            WITH bucketed AS (
+                SELECT
+                    time_bucket('1 minute', time) AS bucket_time,
+                    AVG(%1$s) AS v
+                FROM furnace_metrics
+                WHERE furnace_id = ?1
+                  AND time >= (SELECT MAX(time) FROM furnace_metrics WHERE furnace_id = ?1)
+                             - INTERVAL '7 days'
+                  AND %1$s IS NOT NULL
+                  AND heater_temp > ?2
+                GROUP BY bucket_time
+            ),
+            mr AS (
+                SELECT v, ABS(v - LAG(v) OVER (ORDER BY bucket_time)) AS moving_range
+                FROM bucketed
+            )
+            SELECT AVG(v), AVG(moving_range) / 1.128, COUNT(*)
+            FROM mr
+            """, column);
 
         Object[] row = (Object[]) em.createNativeQuery(sql)
                 .setParameter(1, furnaceId)
+                .setParameter(2, RUNNING_GATE_HEATER_TEMP)
                 .getSingleResult();
 
         Double mean = row[0] == null ? null : ((Number) row[0]).doubleValue();
-        Double std = row[1] == null ? null : ((Number) row[1]).doubleValue();
-        Long count = row[2] == null ? 0L : ((Number) row[2]).longValue();
+        Double std  = row[1] == null ? null : ((Number) row[1]).doubleValue();
+        Long count  = row[2] == null ? 0L : ((Number) row[2]).longValue();
 
-        if (mean == null || std == null || count < 30) {
-            log.warn("Not enough data for baseline furnace={} param={} count={}",
+        if (mean == null || std == null || std == 0 || count < 30) {
+            log.warn("Not enough steady-state data furnace={} param={} count={}",
                     furnaceId, paramName, count);
             return null;
         }

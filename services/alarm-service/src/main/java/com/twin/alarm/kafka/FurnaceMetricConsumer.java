@@ -1,5 +1,7 @@
 package com.twin.alarm.kafka;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.twin.alarm.service.SpcCheckService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -18,52 +20,57 @@ public class FurnaceMetricConsumer {
     private static final Logger log = LoggerFactory.getLogger(FurnaceMetricConsumer.class);
 
     private final SpcCheckService spcCheckService;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
-     * CSV 欄位（從 iot-gateway processTelemetry 分析、對照 furnace_metrics 表）:
-     * 0: datetime
-     * 2: furnace_id
-     * 3: ingot_id
-     * 4: crown
-     * 14: heater_temp
-     * 17: diameter
-     * 19: gr_mean
-     * 20: heater_power_sv
-     * 23: seed_lift
-     * 24: body_length
+     * JSON 訊息格式（來自 iot-gateway MqttToKafkaBridge，furnace-data topic）：
+     * {
+     *   "furnaceId": "D1",
+     *   "ingotNo": "D126654E",
+     *   "heaterTemp": 1259.505,
+     *   "diameter": 105.5,
+     *   "grMean": 1.046128,
+     *   "heaterPowerSv": 53.11406,
+     *   "seedLift": 1.082042,
+     *   "bodyLength": 105.0925,
+     *   ...
+     * }
      */
-    @KafkaListener(topics = "furnace.raw", groupId = "alarm-service-spc")
-    public void consume(String csvLine) {
+    @KafkaListener(topics = "furnace-data", groupId = "alarm-service-spc")
+    public void consume(String jsonPayload) {
         try {
-            String[] fields = csvLine.split(",", -1);
-            if (fields.length < 25) return;
+            JsonNode node = objectMapper.readTree(jsonPayload);
 
-            String furnaceId = trim(fields[2]);
-            String ingotId = trim(fields[3]);
+            String furnaceId = textOrEmpty(node, "furnaceId");
+            String ingotId = textOrEmpty(node, "ingotNo");
+
+            if (furnaceId.isEmpty()) return;
 
             Map<String, Double> values = new HashMap<>();
-            putIfNumeric(values, "heaterTemp", fields[14]);
-            putIfNumeric(values, "diameter", fields[17]);
-            putIfNumeric(values, "grMean", fields[19]);
-            putIfNumeric(values, "heaterPowerSv", fields[20]);
-            putIfNumeric(values, "seedLift", fields[23]);
-            putIfNumeric(values, "bodyLength", fields[24]);
+            putIfNumeric(values, node, "heaterTemp");
+            putIfNumeric(values, node, "diameter");
+            putIfNumeric(values, node, "grMean");
+            putIfNumeric(values, node, "heaterPowerSv");
+            putIfNumeric(values, node, "seedLift");
+            putIfNumeric(values, node, "bodyLength");
 
-            if (values.isEmpty() || furnaceId.isEmpty()) return;
+            if (values.isEmpty()) return;
 
             spcCheckService.checkAllParams(furnaceId, ingotId, Instant.now(), values);
         } catch (Exception e) {
-            log.debug("Failed to parse furnace.raw record: {}", e.getMessage());
+            log.debug("Failed to parse furnace-data record: {}", e.getMessage());
         }
     }
 
-    private String trim(String s) { return s == null ? "" : s.trim(); }
+    private String textOrEmpty(JsonNode node, String field) {
+        JsonNode v = node.get(field);
+        return (v == null || v.isNull()) ? "" : v.asText();
+    }
 
-    private void putIfNumeric(Map<String, Double> map, String key, String raw) {
-        try {
-            if (raw != null && !raw.isBlank()) {
-                map.put(key, Double.parseDouble(raw.trim()));
-            }
-        } catch (NumberFormatException ignored) {}
+    private void putIfNumeric(Map<String, Double> map, JsonNode node, String field) {
+        JsonNode v = node.get(field);
+        if (v != null && v.isNumber()) {
+            map.put(field, v.asDouble());
+        }
     }
 }

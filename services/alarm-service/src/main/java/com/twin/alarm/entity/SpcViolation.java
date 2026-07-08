@@ -18,7 +18,8 @@ import java.util.Objects;
 public class SpcViolation {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "spc_violation_seq")
+    @SequenceGenerator(name = "spc_violation_seq", sequenceName = "spc_violation_id_seq", allocationSize = 1)
     private Long id;
 
     @Id

@@ -212,6 +212,10 @@ services:
         execution.checkpointing.interval: 30s
         execution.checkpointing.mode: EXACTLY_ONCE
         rest.flamegraph.enabled: true
+        akka.ask.timeout: 60 s
+        web.timeout: 60000
+        heartbeat.timeout: 180000
+        heartbeat.interval: 30000
     volumes:
       - flink-checkpoint:/opt/flink/checkpoints
     networks:
@@ -243,6 +247,10 @@ services:
         parallelism.default: 2
         state.backend: hashmap
         state.checkpoints.dir: file:///opt/flink/checkpoints
+        akka.ask.timeout: 60 s
+        web.timeout: 60000
+        heartbeat.timeout: 180000
+        heartbeat.interval: 30000
     volumes:
       - flink-checkpoint:/opt/flink/checkpoints
     networks:

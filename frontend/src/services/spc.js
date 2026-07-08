@@ -34,8 +34,10 @@ export const spcService = {
   },
 
   /** Rule 觸發統計 */
-  async getStatistics(minutes = 1440) {
-    const res = await api.get(`/spc/violation/statistics`, { params: { minutes } })
+  async getStatistics(minutes = 1440, furnaceId = null) {
+    const params = { minutes }
+    if (furnaceId) params.furnaceId = furnaceId
+    const res = await api.get(`/spc/violation/statistics`, { params })
     return res.data
   },
 

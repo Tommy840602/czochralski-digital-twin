@@ -28,7 +28,8 @@
           <span class="rule-id">Rule {{ id }}</span>
           <span :class="['severity', rule.severity.toLowerCase()]">{{ rule.severity }}</span>
         </div>
-        <div class="stat-value">{{ statistics[id] || 0 }}</div>
+        <div class="stat-value">{{ furnaceStatistics[id] || 0 }}</div>
+        <div class="stat-total">Total: {{ statistics[id] || 0 }}</div>
         <div class="stat-desc">{{ rule.name }}</div>
       </div>
     </div>
@@ -123,7 +124,9 @@ const selectedFurnace = ref('D1')
 const selectedParam = ref('heaterTemp')
 const baselines = ref([])
 const violations = ref([])
-const statistics = ref({})
+const statistics = ref({})        // 全域總計（Total，不受爐子切換影響）
+const furnaceStatistics = ref({}) // 目前選中爐子的統計
+
 const timeseries = ref([])
 const rebuilding = ref(false)
 
@@ -183,11 +186,13 @@ async function fetchData() {
       nextBaselines,
       nextViolations,
       nextStatistics,
+      nextFurnaceStatistics,
       nextTimeseries
     ] = await Promise.all([
       spcService.getBaselines(selectedFurnace.value),
       spcService.getRecentViolations(60),
       spcService.getStatistics(1440),
+      spcService.getStatistics(1440, selectedFurnace.value),
       spcService.getTimeseries(selectedFurnace.value, selectedParam.value, 60)
     ])
 
@@ -196,6 +201,7 @@ async function fetchData() {
     baselines.value = Array.isArray(nextBaselines) ? nextBaselines : []
     violations.value = Array.isArray(nextViolations) ? nextViolations : []
     statistics.value = nextStatistics || {}
+    furnaceStatistics.value = nextFurnaceStatistics || {}
     timeseries.value = Array.isArray(nextTimeseries) ? nextTimeseries : []
 
     updateChart()
@@ -469,6 +475,12 @@ onBeforeUnmount(() => {
   font-size: 26px;
   font-weight: 600;
   color: var(--text-1, #e6edf3);
+}
+.stat-total {
+  font-size: 10px;
+  color: var(--text-2, #8b949e);
+  font-family: 'JetBrains Mono', monospace;
+  margin-top: 2px;
 }
 .stat-desc {
   font-size: 11px;

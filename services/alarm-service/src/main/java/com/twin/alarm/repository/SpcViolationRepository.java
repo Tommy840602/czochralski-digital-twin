@@ -23,4 +23,7 @@ public interface SpcViolationRepository extends JpaRepository<SpcViolation, SpcV
 
     @Query("SELECT v.ruleId, COUNT(v) FROM SpcViolation v WHERE v.ts >= :since GROUP BY v.ruleId")
     List<Object[]> countByRuleSince(@Param("since") Instant since);
+
+    @Query("SELECT v.ruleId, COUNT(v) FROM SpcViolation v WHERE v.ts >= :since AND v.furnaceId = :furnaceId GROUP BY v.ruleId")
+    List<Object[]> countByRuleSinceAndFurnace(@Param("since") Instant since, @Param("furnaceId") String furnaceId);
 }
