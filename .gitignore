@@ -14,6 +14,7 @@ venv/
 # Node
 node_modules/
 dist/
+.astro/
 
 # 環境變數（真值）
 .env

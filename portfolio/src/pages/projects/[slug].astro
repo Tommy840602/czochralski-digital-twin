@@ -1,0 +1,64 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { projects } from '../../data/projects.js';
+
+export function getStaticPaths() {
+  return projects.map((project) => ({
+    params: { slug: project.slug },
+    props: { project }
+  }));
+}
+
+const { project } = Astro.props;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+
+<BaseLayout title={`${project.title} | Portfolio`} description={project.short}>
+  <main class="project-page" style={`--accent: ${project.accent}`}>
+    <nav class="page-nav" aria-label="Project navigation">
+      <a href={`${base}/`}>Desktop</a>
+      <a href={`${base}/about/`}>About</a>
+      <a href={project.repo} target="_blank" rel="noreferrer">Repository</a>
+    </nav>
+
+    <header class="project-hero">
+      <div class="project-mark" aria-hidden="true">{project.icon}</div>
+      <p class="eyebrow">{project.period} / {project.role}</p>
+      <h1>{project.title}</h1>
+      <p class="lead">{project.short}</p>
+      <div class="stack-row" aria-label="Tech stack">
+        {project.stack.map((item) => <span>{item}</span>)}
+      </div>
+    </header>
+
+    <section class="metric-strip" aria-label="Project metrics">
+      {project.metrics.map((metric) => (
+        <article>
+          <span>{metric.label}</span>
+          <strong>{metric.value}</strong>
+        </article>
+      ))}
+    </section>
+
+    <section class="content-band">
+      <h2>Highlights</h2>
+      <div class="highlight-list">
+        {project.highlights.map((item) => (
+          <article>
+            <span aria-hidden="true"></span>
+            <p>{item}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+
+    <section class="content-band project-summary">
+      <h2>Interview Angle</h2>
+      <p>
+        這個頁面把技術選型、系統邊界與可驗證成果放在同一個敘事裡，面試時可以從架構、資料流、
+        後端服務或前端互動切入，快速展示完整工程脈絡。
+      </p>
+      <a class="primary-link" href={project.repo} target="_blank" rel="noreferrer">View Repository</a>
+    </section>
+  </main>
+</BaseLayout>
