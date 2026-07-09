@@ -204,7 +204,7 @@ services:
         FLINK_PROPERTIES=
         jobmanager.rpc.address: flink-jobmanager
         jobmanager.memory.process.size: 1600m
-        taskmanager.memory.process.size: 2048m
+        taskmanager.memory.process.size: 4096m
         taskmanager.numberOfTaskSlots: 4
         parallelism.default: 2
         state.backend: hashmap
@@ -242,7 +242,7 @@ services:
       - |
         FLINK_PROPERTIES=
         jobmanager.rpc.address: flink-jobmanager
-        taskmanager.memory.process.size: 2048m
+        taskmanager.memory.process.size: 4096m
         taskmanager.numberOfTaskSlots: 4
         parallelism.default: 2
         state.backend: hashmap
@@ -692,7 +692,7 @@ services:
       flink-jobmanager:
         condition: service_healthy
     volumes:
-      - ./flink-jobs/target:/jars:ro
+      - ./services/flink-jobs/target:/jars:ro
     networks:
       - twin-net
     restart: "no"

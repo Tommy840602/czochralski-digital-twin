@@ -55,9 +55,14 @@ public class SpcBaseline {
     @Column(name = "calculated_at", nullable = false)
     private Instant calculatedAt;
 
+    /** σ 寬鬆度倍數，預設 1.0（標準 3σ 管制），使用者可調整放寬/收緊管制界限 */
+    @Column(name = "sigma_multiplier", nullable = false)
+    private Double sigmaMultiplier = 1.0;
+
     @PrePersist
     @PreUpdate
     void onSave() {
         if (calculatedAt == null) calculatedAt = Instant.now();
+        if (sigmaMultiplier == null) sigmaMultiplier = 1.0;
     }
 }

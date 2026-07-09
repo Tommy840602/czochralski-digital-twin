@@ -13,6 +13,9 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 
 @RestController
 @RequestMapping("/spc")
@@ -22,15 +25,25 @@ public class SpcController {
     private static final Logger log = LoggerFactory.getLogger(SpcController.class);
 
     private final SpcBaselineService baselineService;
+    private final SpcBackfillService backfillService;
 
-    /** 拿某爐所有參數的 baseline */
+    /** 每個爐子各自獨立的忙碌狀態，互不影響 */
+    private final Set<String> busyFurnaces = ConcurrentHashMap.newKeySet();
+
+    private boolean tryLock(String furnaceId) {
+        return busyFurnaces.add(furnaceId);
+    }
+
+    private void unlock(String furnaceId) {
+        busyFurnaces.remove(furnaceId);
+    }
+
     @GetMapping("/baseline")
     @PreAuthorize("hasAuthority('SPC_VIEW')")
     public List<SpcBaseline> listBaseline(@RequestParam String furnaceId) {
         return baselineService.listByFurnace(furnaceId);
     }
 
-    /** 拿指定爐 + 指定參數的 baseline */
     @GetMapping("/baseline/one")
     @PreAuthorize("hasAuthority('SPC_VIEW')")
     public SpcBaseline getBaseline(@RequestParam String furnaceId, @RequestParam String paramName) {
@@ -38,37 +51,45 @@ public class SpcController {
         return b.orElse(null);
     }
 
-    /** 拿所有可用參數清單 */
     @GetMapping("/params")
     @PreAuthorize("hasAuthority('SPC_VIEW')")
     public Map<String, String> availableParams() {
         return SpcBaselineService.PARAM_COLUMN;
     }
 
-    /** 手動重算所有 baseline（ADMIN/ENGINEER 才能觸發） */
-    @PostMapping("/baseline/rebuild")
+    /** 重算單一爐子（所有參數），非同步執行，每爐獨立上鎖 */
+    @PostMapping("/baseline/rebuild/furnace")
     @PreAuthorize("hasAuthority('SPC_VIEW')")
-    public ResponseEntity<?> rebuildAll() {
-        log.info("Manual baseline rebuild triggered");
-        java.util.concurrent.CompletableFuture.runAsync(baselineService::rebuildAll);
+    public ResponseEntity<?> rebuildFurnace(@RequestParam String furnaceId) {
+        if (!tryLock(furnaceId)) {
+            return ResponseEntity.status(409).body(Map.of(
+                    "status", "conflict",
+                    "message", "此爐子已有計算正在進行中，請稍候再試"));
+        }
+        log.info("Manual furnace baseline rebuild triggered: {}", furnaceId);
+        CompletableFuture.runAsync(() -> {
+            try {
+                baselineService.rebuildFurnace(furnaceId);
+            } finally {
+                unlock(furnaceId);
+            }
+        });
         return ResponseEntity.accepted().body(Map.of("status", "ok", "message", "重算已開始，背景執行中"));
     }
 
-    /** 重算單一 baseline */
-    @PostMapping("/baseline/rebuild/one")
+    /** 查詢某爐子目前是否有計算正在進行（重算或 σ 調整共用） */
+    @GetMapping("/baseline/rebuild/status")
     @PreAuthorize("hasAuthority('SPC_VIEW')")
-    public SpcBaseline rebuildOne(@RequestParam String furnaceId, @RequestParam String paramName) {
-        return baselineService.rebuild(furnaceId, paramName);
+    public Map<String, Object> rebuildStatus(@RequestParam String furnaceId) {
+        return Map.of("inProgress", busyFurnaces.contains(furnaceId));
     }
-
-// ---- 新增：violation 查詢 ----
 
     @org.springframework.beans.factory.annotation.Autowired
     private com.twin.alarm.repository.SpcViolationRepository violationRepo;
 
     @GetMapping("/violation/recent")
     @PreAuthorize("hasAuthority('SPC_VIEW')")
-    public java.util.List<com.twin.alarm.entity.SpcViolation> recent(
+    public List<com.twin.alarm.entity.SpcViolation> recent(
             @RequestParam(defaultValue = "60") int minutes) {
         java.time.Instant since = java.time.Instant.now().minus(java.time.Duration.ofMinutes(minutes));
         return violationRepo.findRecent(since);
@@ -76,7 +97,7 @@ public class SpcController {
 
     @GetMapping("/violation/byFurnace")
     @PreAuthorize("hasAuthority('SPC_VIEW')")
-    public java.util.List<com.twin.alarm.entity.SpcViolation> byFurnace(
+    public List<com.twin.alarm.entity.SpcViolation> byFurnace(
             @RequestParam String furnaceId,
             @RequestParam(defaultValue = "60") int minutes) {
         java.time.Instant since = java.time.Instant.now().minus(java.time.Duration.ofMinutes(minutes));
@@ -85,38 +106,53 @@ public class SpcController {
 
     @GetMapping("/violation/statistics")
     @PreAuthorize("hasAuthority('SPC_VIEW')")
-    public java.util.Map<Integer, Long> statistics(
+    public Map<Integer, Long> statistics(
             @RequestParam(defaultValue = "1440") int minutes,
-            @RequestParam(required = false) String furnaceId) {
+            @RequestParam(required = false) String furnaceId,
+            @RequestParam(required = false) String paramName) {
         java.time.Instant since = java.time.Instant.now().minus(java.time.Duration.ofMinutes(minutes));
-        java.util.Map<Integer, Long> map = new java.util.HashMap<>();
-        List<Object[]> rows = (furnaceId == null || furnaceId.isBlank())
-                ? violationRepo.countByRuleSince(since)
-                : violationRepo.countByRuleSinceAndFurnace(since, furnaceId);
+        Map<Integer, Long> map = new java.util.HashMap<>();
+        List<Object[]> rows;
+        if (paramName != null && !paramName.isBlank() && furnaceId != null && !furnaceId.isBlank()) {
+            rows = violationRepo.countByRuleSinceAndFurnaceAndParam(since, furnaceId, paramName);
+        } else if (furnaceId != null && !furnaceId.isBlank()) {
+            rows = violationRepo.countByRuleSinceAndFurnace(since, furnaceId);
+        } else {
+            rows = violationRepo.countByRuleSince(since);
+        }
         for (Object[] row : rows) {
             map.put((Integer) row[0], (Long) row[1]);
         }
         return map;
     }
 
-    private final SpcBackfillService backfillService;  // 加進建構子注入
-
-    @PostMapping("/violation/backfill")
+    /** 調整某爐某參數的 σ 寬鬆度，非同步執行（調整 UCL/LCL + 清空舊 violation + 重跑 backfill），與重算共用同一把爐鎖 */
+    @PatchMapping("/baseline/sigma-multiplier")
     @PreAuthorize("hasAuthority('SPC_VIEW')")
-    public ResponseEntity<?> backfillViolations() {
-        log.info("Manual SPC violation backfill triggered");
-        java.util.concurrent.CompletableFuture.runAsync(backfillService::backfillAll);
-        return ResponseEntity.accepted().body(Map.of("status", "ok", "message", "回溯計算已開始，背景執行中"));
-    }
-
-    /** 重算單一 (furnace, param) 的 violation backfill，避免一次跑 30 組炸記憶體 */
-    @PostMapping("/violation/backfill/one")
-    @PreAuthorize("hasAuthority('SPC_VIEW')")
-    public ResponseEntity<?> backfillOne(
+    public ResponseEntity<?> adjustSigmaMultiplier(
             @RequestParam String furnaceId,
-            @RequestParam String paramName) {
-        log.info("Manual single backfill triggered: furnace={} param={}", furnaceId, paramName);
-        backfillService.backfillOne(furnaceId, paramName);
-        return ResponseEntity.ok(Map.of("status", "ok", "furnaceId", furnaceId, "paramName", paramName));
+            @RequestParam String paramName,
+            @RequestParam double multiplier) {
+        if (multiplier <= 0 || multiplier > 5) {
+            return ResponseEntity.badRequest().body(Map.of("message", "倍數必須介於 0 到 5 之間"));
+        }
+        if (!tryLock(furnaceId)) {
+            return ResponseEntity.status(409).body(Map.of(
+                    "status", "conflict",
+                    "message", "此爐子已有計算正在進行中，請稍候再試"));
+        }
+        log.info("Sigma multiplier adjust triggered: furnace={} param={} multiplier={}", furnaceId, paramName, multiplier);
+        CompletableFuture.runAsync(() -> {
+            try {
+                baselineService.adjustSigmaMultiplier(furnaceId, paramName, multiplier);
+                violationRepo.deleteByFurnaceIdAndParamName(furnaceId, paramName);
+                backfillService.backfillOne(furnaceId, paramName);
+            } catch (Exception e) {
+                log.error("Sigma multiplier adjust failed: furnace={} param={}", furnaceId, paramName, e);
+            } finally {
+                unlock(furnaceId);
+            }
+        });
+        return ResponseEntity.accepted().body(Map.of("status", "ok", "message", "調整已開始，背景執行中"));
     }
 }

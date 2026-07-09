@@ -240,6 +240,14 @@ watch(isAuthPage, maybeBoot)
   animation: pulse 2s ease-in-out infinite;
 }
 
+.spc-page {
+  height: 100vh;        /* 從 min-height 改成 height */
+  overflow-y: auto;      /* 新增這行 */
+  background: var(--bg-2, #0e1116);
+  color: var(--text-1, #e6edf3);
+  padding: 20px 32px;
+}
+
 /* ── 使用者 + 登出 ───────────────────────────────────────── */
 .user-box {
   display: flex; align-items: center; gap: 8px;

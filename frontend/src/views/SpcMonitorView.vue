@@ -1,27 +1,43 @@
 <template>
   <div class="spc-page">
-    <!-- 頁面標題 -->
     <div class="page-header">
       <h1>SPC 統計製程管制</h1>
       <p class="page-sub">
         Self-baselining SPC · Western Electric Rules (8 Rules)
       </p>
-      <button class="btn-rebuild" @click="rebuildBaseline" :disabled="rebuilding">
-        {{ rebuilding ? '重算中…' : '↻ 重算 Baseline' }}
-      </button>
     </div>
 
-    <!-- 爐子選擇 tab -->
     <div class="furnace-tabs">
       <button
         v-for="f in furnaces"
         :key="f"
         :class="['tab', { active: selectedFurnace === f }]"
-        @click="selectedFurnace = f"
+        @click="selectFurnace(f)"
       >{{ f }}</button>
     </div>
 
-    <!-- 統計摘要 (8 條 Rules) -->
+    <!-- 該爐子的重算控制列 -->
+    <div class="furnace-control-bar">
+      <button class="btn-rebuild" :disabled="busy" @click="rebuildBaseline">
+        {{ busy ? '計算中…' : `↻ 重算 ${selectedFurnace} Baseline` }}
+      </button>
+
+      <div class="sigma-control">
+        <label>σ 寬鬆度（{{ paramLabel(selectedParam) }}）</label>
+        <input
+          type="number" min="0.5" max="3" step="0.1"
+          v-model.number="sigmaMultiplier"
+          :disabled="busy"
+          class="sigma-input"
+        />
+        <span class="sigma-unit">x</span>
+        <button class="btn-apply-sigma" :disabled="busy" @click="applySigmaMultiplier">
+          {{ busy ? '計算中…' : '套用' }}
+        </button>
+      </div>
+    </div>
+
+    <!-- 統計摘要 (8 條 Rules) — 只顯示目前選中爐子 -->
     <div class="stats-grid">
       <div v-for="(rule, id) in rules" :key="id" class="stat-card">
         <div class="stat-header">
@@ -29,12 +45,11 @@
           <span :class="['severity', rule.severity.toLowerCase()]">{{ rule.severity }}</span>
         </div>
         <div class="stat-value">{{ furnaceStatistics[id] || 0 }}</div>
-        <div class="stat-total">Total: {{ statistics[id] || 0 }}</div>
+        <div class="stat-total">Total: {{ furnaceTotalStatistics[id] || 0 }}</div>
         <div class="stat-desc">{{ rule.name }}</div>
       </div>
     </div>
 
-    <!-- 主要圖表：Shewhart 管制圖 -->
     <div class="chart-panel">
       <div class="chart-header">
         <h2>{{ selectedFurnace }} · {{ paramLabel(selectedParam) }}</h2>
@@ -58,18 +73,16 @@
       </div>
     </div>
 
-    <!-- 違規事件表格 -->
     <div class="violation-panel">
       <div class="violation-header">
-        <h2>違規事件 (最近 60 分鐘)</h2>
-        <span class="count-badge">{{ violations.length }}</span>
+        <h2>{{ selectedFurnace }} 違規事件 (最近 60 分鐘)</h2>
+        <span class="count-badge">{{ furnaceViolations.length }}</span>
       </div>
       <div class="violation-table">
         <table>
           <thead>
           <tr>
             <th>時間</th>
-            <th>爐</th>
             <th>參數</th>
             <th>Rule</th>
             <th>值</th>
@@ -79,10 +92,9 @@
           </tr>
           </thead>
           <tbody>
-          <tr v-for="v in violations" :key="`${v.id}-${v.ts}`"
+          <tr v-for="v in furnaceViolations" :key="`${v.id}-${v.ts}`"
               :class="v.severity.toLowerCase()">
             <td>{{ formatTime(v.ts) }}</td>
-            <td><strong>{{ v.furnaceId }}</strong></td>
             <td>{{ paramLabel(v.paramName) }}</td>
             <td>
                 <span class="rule-tag" :style="{ background: ruleColor(v.ruleId) }">
@@ -101,8 +113,8 @@
                 </span>
             </td>
           </tr>
-          <tr v-if="!violations.length">
-            <td colspan="8" class="empty">尚無違規事件</td>
+          <tr v-if="!furnaceViolations.length">
+            <td colspan="7" class="empty">尚無違規事件</td>
           </tr>
           </tbody>
         </table>
@@ -115,20 +127,29 @@
 import { ref, onMounted, onBeforeUnmount, watch, computed, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { spcService, SPC_RULES, SPC_PARAMS, FURNACES } from '@/services/spc'
+import { useAuthStore } from '@/stores/auth'
+import { useRouter } from 'vue-router'
+
+const authStore = useAuthStore()
+const router = useRouter()
 
 const furnaces = FURNACES
 const params = SPC_PARAMS
 const rules = SPC_RULES
 
-const selectedFurnace = ref('D1')
+const STORAGE_KEY = 'spc_last_furnace'
+
+const selectedFurnace = ref(localStorage.getItem(STORAGE_KEY) && furnaces.includes(localStorage.getItem(STORAGE_KEY))
+  ? localStorage.getItem(STORAGE_KEY)
+  : 'D1')
 const selectedParam = ref('heaterTemp')
 const baselines = ref([])
 const violations = ref([])
-const statistics = ref({})        // 全域總計（Total，不受爐子切換影響）
-const furnaceStatistics = ref({}) // 目前選中爐子的統計
-
+const furnaceStatistics = ref({})       // 目前參數的違規數
+const furnaceTotalStatistics = ref({})  // 整爐（全部參數）的違規數
 const timeseries = ref([])
-const rebuilding = ref(false)
+const busy = ref(false)
+const sigmaMultiplier = ref(1.0)
 
 const chartRef = ref(null)
 
@@ -139,6 +160,10 @@ let fetching = false
 
 const currentBaseline = computed(() => {
   return baselines.value.find(b => b.paramName === selectedParam.value)
+})
+
+const furnaceViolations = computed(() => {
+  return violations.value.filter(v => v.furnaceId === selectedFurnace.value)
 })
 
 function paramLabel(paramName) {
@@ -160,14 +185,11 @@ function isChartAlive() {
 
 function initChart() {
   if (!chartRef.value || disposed) return
-
   const existing = echarts.getInstanceByDom(chartRef.value)
-
   if (existing && !existing.isDisposed?.()) {
     chart = existing
     return
   }
-
   chart = echarts.init(chartRef.value, 'dark')
 }
 
@@ -178,20 +200,19 @@ function safeResizeChart() {
 
 async function fetchData() {
   if (disposed || fetching) return
-
   fetching = true
 
   try {
     const [
       nextBaselines,
       nextViolations,
-      nextStatistics,
       nextFurnaceStatistics,
+      nextFurnaceTotalStatistics,
       nextTimeseries
     ] = await Promise.all([
       spcService.getBaselines(selectedFurnace.value),
       spcService.getRecentViolations(60),
-      spcService.getStatistics(1440),
+      spcService.getStatistics(1440, selectedFurnace.value, selectedParam.value),
       spcService.getStatistics(1440, selectedFurnace.value),
       spcService.getTimeseries(selectedFurnace.value, selectedParam.value, 60)
     ])
@@ -200,46 +221,61 @@ async function fetchData() {
 
     baselines.value = Array.isArray(nextBaselines) ? nextBaselines : []
     violations.value = Array.isArray(nextViolations) ? nextViolations : []
-    statistics.value = nextStatistics || {}
     furnaceStatistics.value = nextFurnaceStatistics || {}
+    furnaceTotalStatistics.value = nextFurnaceTotalStatistics || {}
     timeseries.value = Array.isArray(nextTimeseries) ? nextTimeseries : []
+
+    if (currentBaseline.value) {
+      sigmaMultiplier.value = currentBaseline.value.sigmaMultiplier ?? 1.0
+    }
 
     updateChart()
   } catch (e) {
-    if (!disposed) {
-      console.error('[SPC] fetch failed', e)
+    if (disposed) return
+
+    if (e.response?.status === 401) {
+      handleSessionExpired()
+      return
     }
+
+    console.error('[SPC] fetch failed', e)
   } finally {
     fetching = false
   }
+}
+
+let sessionExpiredHandled = false
+function handleSessionExpired() {
+  if (sessionExpiredHandled) return
+  sessionExpiredHandled = true
+
+  if (refreshTimer) {
+    window.clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+
+  authStore.logout()
+  alert('登入已過期，請重新登入')
+  router.push({ name: 'login', query: { redirect: '/spc' } })
 }
 
 function updateChart() {
   if (!chart || !currentBaseline.value) return
   const b = currentBaseline.value
 
-  // 當前 furnace + param 的 violations（用來標記紅點）
-  const paramViolations = violations.value.filter(
-    v => v.furnaceId === selectedFurnace.value && v.paramName === selectedParam.value
-  )
-  const violationTs = new Set(paramViolations.map(v => new Date(v.ts).getTime()))
-
-  // 用 timeseries API 拿到的所有點畫線
   const times = timeseries.value.map(p => formatTime(p.ts))
   const points = timeseries.value.map(p => {
-    const ts = new Date(p.ts).getTime()
-    const isViolation = [...violationTs].some(vt => Math.abs(vt - ts) < 60000)
     const outside3sigma = p.value > b.ucl3sigma || p.value < b.lcl3sigma
     const outside2sigma = p.value > b.ucl2sigma || p.value < b.lcl2sigma
 
-    let color = '#1890ff'  // 藍 = 正常
+    let color = '#1890ff'
     let symbolSize = 6
 
-    if (outside3sigma || isViolation) {
-      color = '#ff4d4f'   // 紅 = 超規
+    if (outside3sigma) {
+      color = '#ff4d4f'
       symbolSize = 10
     } else if (outside2sigma) {
-      color = '#faad14'   // 黃 = 警戒
+      color = '#faad14'
       symbolSize = 8
     }
 
@@ -267,7 +303,8 @@ function updateChart() {
     },
     yAxis: {
       type: 'value',
-      scale: true,
+      min: () => Math.floor(Math.min(...timeseries.value.map(p => p.value), b.lcl3sigma) / 10) * 10,
+      max: () => Math.ceil(Math.max(...timeseries.value.map(p => p.value), b.ucl3sigma) / 10) * 10,
       axisLabel: { color: '#8b949e' },
       splitLine: { lineStyle: { color: '#2a3038' } }
     },
@@ -279,47 +316,28 @@ function updateChart() {
         symbol: 'circle',
         smooth: false,
         lineStyle: { color: '#1890ff', width: 1.5 },
-        // Zone A (2σ-3σ 紅色警戒帶)、Zone B (1σ-2σ 黃色)、Zone C (中心 ±1σ 綠色)
         markArea: {
           silent: true,
           data: [
-            // Zone A 上（+2σ ~ +3σ）
-            [{ yAxis: b.ucl2sigma, itemStyle: { color: 'rgba(255, 77, 79, 0.08)' } },
-              { yAxis: b.ucl3sigma }],
-            // Zone A 下（-3σ ~ -2σ）
-            [{ yAxis: b.lcl3sigma, itemStyle: { color: 'rgba(255, 77, 79, 0.08)' } },
-              { yAxis: b.lcl2sigma }],
-            // Zone B 上（+1σ ~ +2σ）
-            [{ yAxis: b.ucl1sigma, itemStyle: { color: 'rgba(250, 173, 20, 0.06)' } },
-              { yAxis: b.ucl2sigma }],
-            // Zone B 下（-2σ ~ -1σ）
-            [{ yAxis: b.lcl2sigma, itemStyle: { color: 'rgba(250, 173, 20, 0.06)' } },
-              { yAxis: b.lcl1sigma }],
-            // Zone C 中心（-1σ ~ +1σ）
-            [{ yAxis: b.lcl1sigma, itemStyle: { color: 'rgba(82, 196, 26, 0.05)' } },
-              { yAxis: b.ucl1sigma }]
+            [{ yAxis: b.ucl2sigma, itemStyle: { color: 'rgba(255, 77, 79, 0.08)' } }, { yAxis: b.ucl3sigma }],
+            [{ yAxis: b.lcl3sigma, itemStyle: { color: 'rgba(255, 77, 79, 0.08)' } }, { yAxis: b.lcl2sigma }],
+            [{ yAxis: b.ucl1sigma, itemStyle: { color: 'rgba(250, 173, 20, 0.06)' } }, { yAxis: b.ucl2sigma }],
+            [{ yAxis: b.lcl2sigma, itemStyle: { color: 'rgba(250, 173, 20, 0.06)' } }, { yAxis: b.lcl1sigma }],
+            [{ yAxis: b.lcl1sigma, itemStyle: { color: 'rgba(82, 196, 26, 0.05)' } }, { yAxis: b.ucl1sigma }]
           ]
         },
-        // 管制線
         markLine: {
           silent: true,
           symbol: 'none',
           label: { position: 'end', color: '#e6edf3', fontSize: 10 },
           data: [
-            { yAxis: b.mean, name: 'Avg',
-              lineStyle: { color: '#52c41a', type: 'solid', width: 2 } },
-            { yAxis: b.ucl3sigma, name: 'UCL 3σ',
-              lineStyle: { color: '#ff4d4f', type: 'dashed', width: 1.5 } },
-            { yAxis: b.lcl3sigma, name: 'LCL 3σ',
-              lineStyle: { color: '#ff4d4f', type: 'dashed', width: 1.5 } },
-            { yAxis: b.ucl2sigma, name: '+2σ',
-              lineStyle: { color: '#faad14', type: 'dashed', opacity: 0.7 } },
-            { yAxis: b.lcl2sigma, name: '-2σ',
-              lineStyle: { color: '#faad14', type: 'dashed', opacity: 0.7 } },
-            { yAxis: b.ucl1sigma, name: '+1σ',
-              lineStyle: { color: '#8b949e', type: 'dotted', opacity: 0.5 } },
-            { yAxis: b.lcl1sigma, name: '-1σ',
-              lineStyle: { color: '#8b949e', type: 'dotted', opacity: 0.5 } }
+            { yAxis: b.mean, name: 'Avg', lineStyle: { color: '#52c41a', type: 'solid', width: 2 } },
+            { yAxis: b.ucl3sigma, name: 'UCL 3σ', lineStyle: { color: '#ff4d4f', type: 'dashed', width: 1.5 } },
+            { yAxis: b.lcl3sigma, name: 'LCL 3σ', lineStyle: { color: '#ff4d4f', type: 'dashed', width: 1.5 } },
+            { yAxis: b.ucl2sigma, name: '+2σ', lineStyle: { color: '#faad14', type: 'dashed', opacity: 0.7 } },
+            { yAxis: b.lcl2sigma, name: '-2σ', lineStyle: { color: '#faad14', type: 'dashed', opacity: 0.7 } },
+            { yAxis: b.ucl1sigma, name: '+1σ', lineStyle: { color: '#8b949e', type: 'dotted', opacity: 0.5 } },
+            { yAxis: b.lcl1sigma, name: '-1σ', lineStyle: { color: '#8b949e', type: 'dotted', opacity: 0.5 } }
           ]
         }
       }
@@ -328,36 +346,81 @@ function updateChart() {
   chart.setOption(option, true)
 }
 
-async function rebuildBaseline() {
-  if (!confirm('重算所有爐子的 baseline？這會使用過去 7 天的資料重新計算。')) {
-    return
-  }
+// ---- 共用的「計算中/完成」邏輯：重算 baseline 與調整 σ 都走這裡 ----
 
-  rebuilding.value = true
-
-  try {
-    await spcService.rebuildBaseline()
-
+async function pollUntilDone(furnaceId) {
+  const maxAttempts = 36
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(r => setTimeout(r, 5000))
     if (disposed) return
-
-    await fetchData()
-    alert('Baseline 重算完成')
-  } catch (e) {
-    if (!disposed) {
-      alert('重算失敗：' + (e.response?.data?.message || e.message))
+    try {
+      const running = await spcService.checkFurnaceRebuildStatus(furnaceId)
+      if (!running) break
+    } catch (e) {
+      break
     }
-  } finally {
-    rebuilding.value = false
+  }
+  if (disposed) return
+  if (selectedFurnace.value === furnaceId) {
+    await fetchData()
+    busy.value = false
+    alert(`${furnaceId} 爐計算完成！`)
   }
 }
 
-watch(
-  [selectedFurnace, selectedParam],
-  async () => {
-    if (disposed) return
-    await fetchData()
+async function runHeavyJob(triggerFn, furnaceId) {
+  busy.value = true
+  try {
+    await triggerFn()
+  } catch (e) {
+    if (!disposed) {
+      if (e.response?.status === 409) {
+        alert('此爐子已有計算正在進行中，請稍候再試')
+      } else {
+        alert('操作失敗：' + (e.response?.data?.message || e.message))
+      }
+    }
+    busy.value = false
+    return
   }
-)
+  await pollUntilDone(furnaceId)
+}
+
+async function rebuildBaseline() {
+  if (!confirm(`重算 ${selectedFurnace.value} 爐的 baseline？這會使用過去 7 天的資料重新計算，約需 1-2 分鐘。`)) return
+  await runHeavyJob(
+    () => spcService.rebuildFurnaceBaseline(selectedFurnace.value),
+    selectedFurnace.value
+  )
+}
+
+async function applySigmaMultiplier() {
+  await runHeavyJob(
+    () => spcService.adjustSigmaMultiplier(selectedFurnace.value, selectedParam.value, sigmaMultiplier.value),
+    selectedFurnace.value
+  )
+}
+
+// ---- 切換爐子：記憶 + 檢查是否有背景任務還在跑 ----
+
+async function selectFurnace(f) {
+  if (f === selectedFurnace.value) return
+  selectedFurnace.value = f
+  localStorage.setItem(STORAGE_KEY, f)
+  await fetchData()
+  try {
+    const running = await spcService.checkFurnaceRebuildStatus(f)
+    busy.value = running
+    if (running) pollUntilDone(f)
+  } catch (e) {
+    busy.value = false
+  }
+}
+
+watch(selectedParam, async () => {
+  if (disposed) return
+  await fetchData()
+})
 
 onMounted(async () => {
   disposed = false
@@ -368,6 +431,16 @@ onMounted(async () => {
   window.addEventListener('resize', safeResizeChart)
 
   await fetchData()
+
+  try {
+    const running = await spcService.checkFurnaceRebuildStatus(selectedFurnace.value)
+    if (running) {
+      busy.value = true
+      pollUntilDone(selectedFurnace.value)
+    }
+  } catch (e) {
+    // 忽略
+  }
 
   refreshTimer = window.setInterval(fetchData, 10000)
 })
@@ -398,32 +471,14 @@ onBeforeUnmount(() => {
   padding: 20px 32px;
 }
 
-.page-header {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 24px;
-  flex-wrap: wrap;
-}
+.page-header { margin-bottom: 16px; }
 .page-header h1 { font-size: 22px; margin: 0; }
 .page-sub { color: var(--text-2, #8b949e); font-size: 12px; margin: 0; }
-
-.btn-rebuild {
-  margin-left: auto;
-  background: var(--teal, #1d9e75);
-  color: #fff;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 12px;
-}
-.btn-rebuild:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .furnace-tabs {
   display: flex;
   gap: 8px;
-  margin-bottom: 24px;
+  margin-bottom: 16px;
 }
 .tab {
   padding: 8px 20px;
@@ -439,6 +494,63 @@ onBeforeUnmount(() => {
   color: var(--teal, #1d9e75);
   background: rgba(29, 158, 117, 0.1);
 }
+
+.furnace-control-bar {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+  padding: 12px 16px;
+  background: var(--bg-1, #161b22);
+  border: 1px solid var(--border, #2a3038);
+  border-radius: 8px;
+}
+
+.btn-rebuild {
+  background: var(--teal, #1d9e75);
+  color: #fff;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.btn-rebuild:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.sigma-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-2, #8b949e);
+}
+.sigma-control label {
+  white-space: nowrap;
+  font-family: 'JetBrains Mono', monospace;
+}
+.sigma-input {
+  width: 60px;
+  background: var(--bg-2, #0e1116);
+  border: 1px solid var(--border, #2a3038);
+  color: var(--text-1, #e6edf3);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.sigma-input:focus { outline: none; border-color: var(--teal, #1d9e75); }
+.sigma-unit { font-family: 'JetBrains Mono', monospace; }
+.btn-apply-sigma {
+  background: var(--teal, #1d9e75);
+  color: #fff;
+  border: none;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+}
+.btn-apply-sigma:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .stats-grid {
   display: grid;
@@ -510,9 +622,7 @@ onBeforeUnmount(() => {
   border-radius: 4px;
   font-size: 12px;
 }
-.chart-container {
-  height: 340px;
-}
+.chart-container { height: 340px; }
 .chart-legend {
   display: flex;
   justify-content: center;
@@ -550,15 +660,8 @@ onBeforeUnmount(() => {
   border-radius: 10px;
 }
 
-.violation-table {
-  max-height: 400px;
-  overflow-y: auto;
-}
-.violation-table table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-}
+.violation-table { max-height: 400px; overflow-y: auto; }
+.violation-table table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .violation-table th,
 .violation-table td {
   text-align: left;
@@ -578,11 +681,7 @@ onBeforeUnmount(() => {
 .violation-table tr.critical { background: rgba(255, 77, 79, 0.06); }
 .violation-table tr.warn { background: rgba(250, 173, 20, 0.03); }
 .mono { font-family: 'JetBrains Mono', monospace; }
-.empty {
-  text-align: center !important;
-  color: var(--text-2, #8b949e);
-  padding: 40px !important;
-}
+.empty { text-align: center !important; color: var(--text-2, #8b949e); padding: 40px !important; }
 
 .rule-tag {
   display: inline-block;
@@ -593,12 +692,7 @@ onBeforeUnmount(() => {
   font-family: 'JetBrains Mono', monospace;
   margin-right: 6px;
 }
-.sev-badge {
-  padding: 2px 8px;
-  border-radius: 3px;
-  font-size: 10px;
-  font-weight: 600;
-}
+.sev-badge { padding: 2px 8px; border-radius: 3px; font-size: 10px; font-weight: 600; }
 .sev-badge.critical { background: #ff4d4f; color: #fff; }
 .sev-badge.warn { background: rgba(250, 173, 20, 0.2); color: #faad14; }
 </style>

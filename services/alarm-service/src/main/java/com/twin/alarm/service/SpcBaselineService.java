@@ -121,11 +121,41 @@ public class SpcBaselineService {
         return baselineRepo.save(b);
     }
 
+    @Transactional
+    public SpcBaseline adjustSigmaMultiplier(String furnaceId, String paramName, double multiplier) {
+        SpcBaseline b = baselineRepo.findByFurnaceIdAndParamName(furnaceId, paramName)
+                .orElseThrow(() -> new IllegalArgumentException("No baseline found for " + furnaceId + "/" + paramName));
+
+        double mean = b.getMean();
+        double std = b.getStdDev();  // 原始 σ，不會被覆蓋
+
+        b.setSigmaMultiplier(multiplier);
+        b.setUcl3sigma(mean + 3 * multiplier * std);
+        b.setLcl3sigma(mean - 3 * multiplier * std);
+        b.setUcl2sigma(mean + 2 * multiplier * std);
+        b.setLcl2sigma(mean - 2 * multiplier * std);
+        b.setUcl1sigma(mean + multiplier * std);
+        b.setLcl1sigma(mean - multiplier * std);
+
+        return baselineRepo.save(b);
+    }
+
     public List<SpcBaseline> listByFurnace(String furnaceId) {
         return baselineRepo.findByFurnaceId(furnaceId);
     }
 
     public Optional<SpcBaseline> get(String furnaceId, String paramName) {
         return baselineRepo.findByFurnaceIdAndParamName(furnaceId, paramName);
+    }
+
+    public void rebuildFurnace(String furnaceId) {
+        for (String paramName : PARAM_COLUMN.keySet()) {
+            try {
+                rebuild(furnaceId, paramName);
+            } catch (Exception e) {
+                log.warn("Failed to rebuild baseline furnace={} param={}: {}", furnaceId, paramName, e.getMessage());
+            }
+        }
+        log.info("Baseline rebuild done for furnace={}", furnaceId);
     }
 }

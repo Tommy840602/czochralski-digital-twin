@@ -29,7 +29,7 @@ public class SpcBackfillService {
     private EntityManager em;
 
     private static final double RUNNING_GATE_HEATER_TEMP = 500.0;
-    private static final long DEDUPE_SECONDS = 30;
+    private static final long DEDUPE_SECONDS = 300;
 
     public void backfillAll() {
         List<String> furnaces = List.of("D1", "D3", "DB", "F7", "FA");

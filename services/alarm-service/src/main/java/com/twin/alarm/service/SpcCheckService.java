@@ -30,7 +30,7 @@ public class SpcCheckService {
     public static final String SPC_ALERTS_TOPIC = "spc-alerts";
 
     /** 同一 furnace+param+rule 在 DEDUPE_SECONDS 秒內只寫一次、避免 DB 爆炸 */
-    private static final long DEDUPE_SECONDS = 30;
+    private static final long DEDUPE_SECONDS = 300;
     private final Map<String, Instant> lastRecordTime = new ConcurrentHashMap<>();
 
     public void checkAllParams(String furnaceId, String ingotId, Instant ts, Map<String, Double> values) {
