@@ -5,6 +5,8 @@
    ============================================================ */
 
 :root {
+  color-scheme: dark;
+
   /* ── 調色板 ────────────────────────────────────────── */
   --bg-0:       #060a0f;   /* 主背景（最深） */
   --bg-1:       #0d1520;   /* 卡片背景 */
@@ -17,6 +19,13 @@
 
   --border:     rgba(56, 189, 248, 0.08);
   --border-hi:  rgba(56, 189, 248, 0.2);
+
+  /* 中性覆蓋（原本各處寫死 rgba(255,255,255,x) / rgba(0,0,0,x)） */
+  --overlay-muted: rgba(255, 255, 255, 0.05);
+
+  /* 浮在 3D 場景上的 HUD 面板（半透明，隨主題翻轉） */
+  --panel-bg:     rgba(8, 14, 22, 0.88);
+  --panel-border: rgba(56, 189, 248, 0.25);
 
   /* ── 強調色 ────────────────────────────────────────── */
   --teal:       #38bdf8;   /* 主強調：天藍 */
@@ -49,6 +58,49 @@
   --shadow-card: 0 2px 16px rgba(0, 0, 0, 0.4);
 }
 
+/* ── 日光模式（Light）─────────────────────────────────────
+   只覆寫背景/文字/邊框/陰影等中性色；強調色略微加深以確保白底對比。
+   透過 <html data-theme="light"> 啟用。 */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg-0:       #f4f7fb;   /* 主背景（最淺） */
+  --bg-1:       #ffffff;   /* 卡片背景 */
+  --bg-2:       #eef2f7;   /* 次要區塊 */
+  --bg-3:       #e2e8f0;   /* hover / 邊框 */
+
+  --text-0:     #0f1b2a;   /* 主文字 */
+  --text-1:     #47607a;   /* 次要文字 */
+  --text-2:     #7c92a6;   /* 暗示文字 */
+
+  --border:     rgba(15, 40, 70, 0.12);
+  --border-hi:  rgba(15, 40, 70, 0.28);
+
+  --overlay-muted: rgba(15, 40, 70, 0.06);
+
+  --panel-bg:     rgba(255, 255, 255, 0.92);
+  --panel-border: rgba(15, 40, 70, 0.15);
+
+  --teal:       #0ea5e9;
+  --teal-dim:   rgba(14, 165, 233, 0.12);
+  --teal-glow:  rgba(14, 165, 233, 0.22);
+
+  --amber:      #d97706;
+  --amber-dim:  rgba(217, 119, 6, 0.12);
+
+  --red:        #dc2626;
+  --red-dim:    rgba(220, 38, 38, 0.10);
+
+  --green:      #059669;
+  --green-dim:  rgba(5, 150, 105, 0.12);
+
+  --purple:     #7c3aed;
+  --purple-dim: rgba(124, 58, 237, 0.10);
+
+  --shadow-teal: 0 0 24px rgba(14, 165, 233, 0.10);
+  --shadow-card: 0 2px 16px rgba(15, 40, 70, 0.12);
+}
+
 /* ── Reset ─────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; overflow: hidden; }
@@ -60,6 +112,7 @@ body {
   color: var(--text-0);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
 /* ── Utility classes ───────────────────────────────────── */
@@ -78,7 +131,7 @@ body {
 .badge-red    { background: var(--red-dim);    color: var(--red); }
 .badge-green  { background: var(--green-dim);  color: var(--green); }
 .badge-purple { background: var(--purple-dim); color: var(--purple); }
-.badge-muted  { background: rgba(255,255,255,0.05); color: var(--text-1); }
+.badge-muted  { background: var(--overlay-muted); color: var(--text-1); }
 
 /* ── Scrollbar ─────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 4px; height: 4px; }

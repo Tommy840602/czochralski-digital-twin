@@ -133,7 +133,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 .sec-title { display: flex; align-items: baseline; gap: 12px; }
 .sec-title-tag {
   font-size: 10px; letter-spacing: 0.18em;
-  color: #38bdf8; opacity: 0.7;
+  color: var(--teal); opacity: 0.7;
 }
 .sec-title-id {
   font-size: 16px; font-weight: 700; color: #e2e8f0;
@@ -149,13 +149,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
   background: transparent;
   border: 1px solid rgba(255,255,255,0.12);
   border-radius: 6px;
-  color: #94a3b8;
+  color: var(--text-1);
   font-size: 18px; line-height: 1;
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   transition: all 0.15s ease;
 }
-.sec-close:hover { color: #f87171; border-color: rgba(248,113,113,0.6); }
+.sec-close:hover { color: var(--red); border-color: rgba(248,113,113,0.6); }
 
 .sec-body {
   flex: 1 1 auto;
@@ -187,7 +187,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 }
 .sec-kpi-title {
   font-size: 10px; letter-spacing: 0.18em;
-  color: #38bdf8; opacity: 0.6;
+  color: var(--teal); opacity: 0.6;
   padding-bottom: 6px;
   margin-bottom: 4px;
   border-bottom: 1px solid rgba(56, 189, 248, 0.1);
@@ -200,11 +200,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
   border-radius: 6px;
 }
 .sec-kpi-label {
-  font-size: 9px; letter-spacing: 0.12em; color: #64748b;
+  font-size: 9px; letter-spacing: 0.12em; color: var(--text-2);
   margin-bottom: 4px;
 }
 .sec-kpi-value { font-size: 18px; font-weight: 700; }
-.sec-kpi-unit { font-size: 9px; color: #64748b; margin-left: 3px; font-weight: 500; }
+.sec-kpi-unit { font-size: 9px; color: var(--text-2); margin-left: 3px; font-weight: 500; }
 
 .sec-info {
   margin-top: auto;
@@ -214,9 +214,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 }
 .sec-info-row {
   display: flex; justify-content: space-between;
-  font-size: 9px; color: #64748b; letter-spacing: 0.08em;
+  font-size: 9px; color: var(--text-2); letter-spacing: 0.08em;
 }
-.sec-info-row .mono { color: #94a3b8; }
+.sec-info-row .mono { color: var(--text-1); }
 
 .modal-fade-enter-active, .modal-fade-leave-active { transition: opacity 0.18s ease; }
 .modal-fade-enter-active .sec-dialog,

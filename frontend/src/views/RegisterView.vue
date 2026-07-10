@@ -158,26 +158,26 @@ async function onSubmit() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-2, #0e1116);
+  background: var(--bg-2);
   padding: 24px;
 }
 .auth-card {
   width: 100%;
   max-width: 380px;
-  background: var(--bg-1, #161b22);
-  border: 1px solid var(--border, #2a3038);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 32px 28px;
 }
 .auth-title {
   font-size: 18px;
   font-weight: 600;
-  color: var(--text-1, #e6edf3);
+  color: var(--text-1);
   margin: 0 0 4px;
 }
 .auth-sub {
   font-size: 12px;
-  color: var(--text-2, #8b949e);
+  color: var(--text-2);
   margin: 0 0 24px;
 }
 .auth-form {
@@ -193,21 +193,21 @@ async function onSubmit() {
 .fld-lbl {
   font-size: 11px;
   letter-spacing: 0.08em;
-  color: var(--text-2, #8b949e);
+  color: var(--text-2);
 }
 .fld input,
 .sms-input {
-  background: var(--bg-2, #0e1116);
-  border: 1px solid var(--border, #2a3038);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm, 6px);
   padding: 9px 11px;
   font-size: 13px;
-  color: var(--text-1, #e6edf3);
+  color: var(--text-1);
   outline: none;
 }
 .fld input:focus,
 .sms-input:focus {
-  border-color: var(--teal, #1d9e75);
+  border-color: var(--teal);
 }
 .recaptcha {
   min-height: 0;
@@ -221,12 +221,12 @@ async function onSubmit() {
 }
 .btn-sms {
   white-space: nowrap;
-  background: var(--bg-2, #0e1116);
-  border: 1px solid var(--border, #2a3038);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm, 6px);
   padding: 0 12px;
   font-size: 12px;
-  color: var(--text-1, #e6edf3);
+  color: var(--text-1);
   cursor: pointer;
   min-width: 96px;
 }
@@ -236,17 +236,17 @@ async function onSubmit() {
 }
 .auth-err {
   font-size: 12px;
-  color: var(--red, #e24b4a);
+  color: var(--red);
   margin: 0;
 }
 .auth-note {
   font-size: 12px;
-  color: var(--text-2, #8b949e);
+  color: var(--text-2);
   margin: 0;
 }
 .btn-primary {
   margin-top: 4px;
-  background: var(--teal, #1d9e75);
+  background: var(--teal);
   color: #fff;
   border: none;
   border-radius: var(--radius-sm, 6px);
@@ -266,7 +266,7 @@ async function onSubmit() {
   font-size: 12px;
 }
 .auth-links a {
-  color: var(--teal, #1d9e75);
+  color: var(--teal);
   text-decoration: none;
 }
 </style>

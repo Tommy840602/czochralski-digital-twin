@@ -1,4 +1,5 @@
-@import './base.css';
+/* base.css（Vite 樣板）已移除：它自帶 prefers-color-scheme 覆寫，
+   會與 globals.css 的主題系統衝突。主題一律由 globals.css + data-theme 控制。 */
 
 #app {
   width: 100%;

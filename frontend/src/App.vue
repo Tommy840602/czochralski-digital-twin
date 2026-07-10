@@ -61,6 +61,12 @@
             <span class="ws-dot"></span>
             <span class="mono">{{ store.wsConnected ? 'LIVE' : 'OFFLINE' }}</span>
           </div>
+          <!-- 主題切換 -->
+          <button
+            class="theme-btn"
+            :title="theme === 'light' ? '切換為深色模式' : '切換為日光模式'"
+            @click="toggleTheme"
+          >{{ theme === 'light' ? '☾' : '☀' }}</button>
           <!-- 使用者 + 登出 -->
           <div class="user-box">
             <span class="user-name mono">{{ auth.username }}</span>
@@ -89,10 +95,12 @@ import { useFurnaceWebSocket } from '@/composables/useFurnaceWebSocket.js'
 import ControlRoomDoor from '@/components/ControlRoomDoor.vue'
 import { useDigitalTwinBoot } from '@/composables/useDigitalTwinBoot.js'
 import { useAuthStore } from '@/stores/auth'
+import { useTheme } from '@/composables/useTheme.js'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const { theme, toggle: toggleTheme } = useTheme()
 
 const isAuthPage = computed(() =>
   ['login', 'register', 'forgot', 'oauth-callback', 'reset-password'].includes(route.name))
@@ -263,6 +271,16 @@ watch(isAuthPage, maybeBoot)
   transition: border-color 0.15s, color 0.15s;
 }
 .logout-btn:hover { border-color: var(--red); color: var(--red); }
+
+.theme-btn {
+  width: 30px; height: 30px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-1); cursor: pointer; font-size: 15px; line-height: 1;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.theme-btn:hover { border-color: var(--teal); color: var(--teal); }
 
 /* ── Main ────────────────────────────────────────────────── */
 .app-body {

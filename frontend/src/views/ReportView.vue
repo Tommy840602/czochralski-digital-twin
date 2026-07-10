@@ -283,9 +283,9 @@ onMounted(() => { if (!kicked && ids.value.length) { kicked = true; generateAll(
 .rep-meta { display: flex; gap: 14px; align-items: center; font-size: 11px; color: var(--text-2); }
 .rep-actions { display: flex; gap: 8px; }
 .verdict { padding: 3px 12px; border-radius: 999px; font-weight: 700; font-size: 12px; }
-.v-ng { background: rgba(220,38,38,0.15); color: #f87171; }
+.v-ng { background: rgba(220,38,38,0.15); color: var(--red); }
 .v-warn { background: rgba(217,119,6,0.15); color: #fbbf24; }
-.v-ok { background: rgba(5,150,105,0.15); color: #34d399; }
+.v-ok { background: rgba(5,150,105,0.15); color: var(--green); }
 .v-na { background: var(--bg-3); color: var(--text-2); }
 
 .rep-summary { font-size: 14px; line-height: 1.6; color: var(--text-0); margin: 0 0 18px; }

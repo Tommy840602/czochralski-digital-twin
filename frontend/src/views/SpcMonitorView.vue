@@ -129,9 +129,17 @@ import * as echarts from 'echarts'
 import { spcService, SPC_RULES, SPC_PARAMS, FURNACES } from '@/services/spc'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
+import { useTheme } from '@/composables/useTheme.js'
 
 const authStore = useAuthStore()
 const router = useRouter()
+const { theme } = useTheme()
+
+/** 讀取當前 CSS 變數值（供 echarts 使用，隨主題翻轉） */
+function cssVar(name, fallback) {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return v || fallback
+}
 
 const furnaces = FURNACES
 const params = SPC_PARAMS
@@ -190,7 +198,8 @@ function initChart() {
     chart = existing
     return
   }
-  chart = echarts.init(chartRef.value, 'dark')
+  // 不綁 echarts 內建 'dark' 主題；背景設透明、軸色改讀 CSS 變數，讓圖表隨主題翻轉
+  chart = echarts.init(chartRef.value)
 }
 
 function safeResizeChart() {
@@ -286,7 +295,13 @@ function updateChart() {
     }
   })
 
+  // 隨主題翻轉的顏色（讀取當前 CSS 變數）
+  const cAxisLabel = cssVar('--text-1', '#8b949e')
+  const cGridLine = cssVar('--bg-3', '#2a3038')
+  const cMarkLabel = cssVar('--text-0', '#e6edf3')
+
   const option = {
+    backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',
       formatter: (params) => {
@@ -298,15 +313,15 @@ function updateChart() {
     xAxis: {
       type: 'category',
       data: times,
-      axisLabel: { rotate: 45, color: '#8b949e', fontSize: 10 },
-      axisLine: { lineStyle: { color: '#2a3038' } }
+      axisLabel: { rotate: 45, color: cAxisLabel, fontSize: 10 },
+      axisLine: { lineStyle: { color: cGridLine } }
     },
     yAxis: {
       type: 'value',
       min: () => Math.floor(Math.min(...timeseries.value.map(p => p.value), b.lcl3sigma) / 10) * 10,
       max: () => Math.ceil(Math.max(...timeseries.value.map(p => p.value), b.ucl3sigma) / 10) * 10,
-      axisLabel: { color: '#8b949e' },
-      splitLine: { lineStyle: { color: '#2a3038' } }
+      axisLabel: { color: cAxisLabel },
+      splitLine: { lineStyle: { color: cGridLine } }
     },
     series: [
       {
@@ -329,7 +344,7 @@ function updateChart() {
         markLine: {
           silent: true,
           symbol: 'none',
-          label: { position: 'end', color: '#e6edf3', fontSize: 10 },
+          label: { position: 'end', color: cMarkLabel, fontSize: 10 },
           data: [
             { yAxis: b.mean, name: 'Avg', lineStyle: { color: '#52c41a', type: 'solid', width: 2 } },
             { yAxis: b.ucl3sigma, name: 'UCL 3σ', lineStyle: { color: '#ff4d4f', type: 'dashed', width: 1.5 } },
@@ -422,6 +437,11 @@ watch(selectedParam, async () => {
   await fetchData()
 })
 
+// 主題切換時，重繪圖表讓軸色/背景跟著翻轉
+watch(theme, () => {
+  nextTick(() => { if (isChartAlive()) updateChart() })
+})
+
 onMounted(async () => {
   disposed = false
 
@@ -465,15 +485,16 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .spc-page {
-  min-height: 100vh;
-  background: var(--bg-2, #0e1116);
-  color: var(--text-1, #e6edf3);
+  height: 100%;
+  overflow-y: auto;
+  background: var(--bg-2);
+  color: var(--text-1);
   padding: 20px 32px;
 }
 
 .page-header { margin-bottom: 16px; }
 .page-header h1 { font-size: 22px; margin: 0; }
-.page-sub { color: var(--text-2, #8b949e); font-size: 12px; margin: 0; }
+.page-sub { color: var(--text-2); font-size: 12px; margin: 0; }
 
 .furnace-tabs {
   display: flex;
@@ -482,16 +503,16 @@ onBeforeUnmount(() => {
 }
 .tab {
   padding: 8px 20px;
-  background: var(--bg-1, #161b22);
-  border: 1px solid var(--border, #2a3038);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: var(--text-2, #8b949e);
+  color: var(--text-2);
   cursor: pointer;
   font-family: 'JetBrains Mono', monospace;
 }
 .tab.active {
-  border-color: var(--teal, #1d9e75);
-  color: var(--teal, #1d9e75);
+  border-color: var(--teal);
+  color: var(--teal);
   background: rgba(29, 158, 117, 0.1);
 }
 
@@ -502,13 +523,13 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   margin-bottom: 24px;
   padding: 12px 16px;
-  background: var(--bg-1, #161b22);
-  border: 1px solid var(--border, #2a3038);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
   border-radius: 8px;
 }
 
 .btn-rebuild {
-  background: var(--teal, #1d9e75);
+  background: var(--teal);
   color: #fff;
   border: none;
   padding: 8px 16px;
@@ -523,7 +544,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   font-size: 11px;
-  color: var(--text-2, #8b949e);
+  color: var(--text-2);
 }
 .sigma-control label {
   white-space: nowrap;
@@ -531,18 +552,18 @@ onBeforeUnmount(() => {
 }
 .sigma-input {
   width: 60px;
-  background: var(--bg-2, #0e1116);
-  border: 1px solid var(--border, #2a3038);
-  color: var(--text-1, #e6edf3);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text-1);
   padding: 4px 8px;
   border-radius: 4px;
   font-size: 12px;
   font-family: 'JetBrains Mono', monospace;
 }
-.sigma-input:focus { outline: none; border-color: var(--teal, #1d9e75); }
+.sigma-input:focus { outline: none; border-color: var(--teal); }
 .sigma-unit { font-family: 'JetBrains Mono', monospace; }
 .btn-apply-sigma {
-  background: var(--teal, #1d9e75);
+  background: var(--teal);
   color: #fff;
   border: none;
   padding: 4px 12px;
@@ -559,8 +580,8 @@ onBeforeUnmount(() => {
   margin-bottom: 24px;
 }
 .stat-card {
-  background: var(--bg-1, #161b22);
-  border: 1px solid var(--border, #2a3038);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 14px;
 }
@@ -573,7 +594,7 @@ onBeforeUnmount(() => {
 .rule-id {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
-  color: var(--text-2, #8b949e);
+  color: var(--text-2);
 }
 .severity {
   font-size: 10px;
@@ -581,28 +602,28 @@ onBeforeUnmount(() => {
   border-radius: 3px;
   font-weight: 600;
 }
-.severity.critical { background: #ff4d4f; color: #fff; }
-.severity.warn { background: rgba(250, 173, 20, 0.2); color: #faad14; }
+.severity.critical { background: var(--red); color: #fff; }
+.severity.warn { background: rgba(250, 173, 20, 0.2); color: var(--amber); }
 .stat-value {
   font-size: 26px;
   font-weight: 600;
-  color: var(--text-1, #e6edf3);
+  color: var(--text-1);
 }
 .stat-total {
   font-size: 10px;
-  color: var(--text-2, #8b949e);
+  color: var(--text-2);
   font-family: 'JetBrains Mono', monospace;
   margin-top: 2px;
 }
 .stat-desc {
   font-size: 11px;
-  color: var(--text-2, #8b949e);
+  color: var(--text-2);
   margin-top: 4px;
 }
 
 .chart-panel {
-  background: var(--bg-1, #161b22);
-  border: 1px solid var(--border, #2a3038);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 16px;
   margin-bottom: 24px;
@@ -615,9 +636,9 @@ onBeforeUnmount(() => {
 }
 .chart-header h2 { font-size: 14px; margin: 0; }
 .param-select {
-  background: var(--bg-2, #0e1116);
-  border: 1px solid var(--border, #2a3038);
-  color: var(--text-1, #e6edf3);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text-1);
   padding: 6px 12px;
   border-radius: 4px;
   font-size: 12px;
@@ -629,7 +650,7 @@ onBeforeUnmount(() => {
   gap: 20px;
   margin-top: 8px;
   font-size: 11px;
-  color: var(--text-2, #8b949e);
+  color: var(--text-2);
 }
 .legend-item { display: flex; align-items: center; gap: 6px; }
 .legend-color {
@@ -640,8 +661,8 @@ onBeforeUnmount(() => {
 }
 
 .violation-panel {
-  background: var(--bg-1, #161b22);
-  border: 1px solid var(--border, #2a3038);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 16px;
 }
@@ -653,7 +674,7 @@ onBeforeUnmount(() => {
 }
 .violation-header h2 { font-size: 14px; margin: 0; }
 .count-badge {
-  background: var(--teal, #1d9e75);
+  background: var(--teal);
   color: #fff;
   font-size: 11px;
   padding: 2px 8px;
@@ -666,22 +687,22 @@ onBeforeUnmount(() => {
 .violation-table td {
   text-align: left;
   padding: 8px 10px;
-  border-bottom: 1px solid var(--border, #2a3038);
+  border-bottom: 1px solid var(--border);
 }
 .violation-table th {
-  color: var(--text-2, #8b949e);
+  color: var(--text-2);
   font-weight: 500;
   font-size: 11px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  background: var(--bg-2, #0e1116);
+  background: var(--bg-2);
   position: sticky;
   top: 0;
 }
 .violation-table tr.critical { background: rgba(255, 77, 79, 0.06); }
 .violation-table tr.warn { background: rgba(250, 173, 20, 0.03); }
 .mono { font-family: 'JetBrains Mono', monospace; }
-.empty { text-align: center !important; color: var(--text-2, #8b949e); padding: 40px !important; }
+.empty { text-align: center !important; color: var(--text-2); padding: 40px !important; }
 
 .rule-tag {
   display: inline-block;
@@ -693,6 +714,6 @@ onBeforeUnmount(() => {
   margin-right: 6px;
 }
 .sev-badge { padding: 2px 8px; border-radius: 3px; font-size: 10px; font-weight: 600; }
-.sev-badge.critical { background: #ff4d4f; color: #fff; }
-.sev-badge.warn { background: rgba(250, 173, 20, 0.2); color: #faad14; }
+.sev-badge.critical { background: var(--red); color: #fff; }
+.sev-badge.warn { background: rgba(250, 173, 20, 0.2); color: var(--amber); }
 </style>

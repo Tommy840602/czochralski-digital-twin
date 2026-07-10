@@ -61,17 +61,17 @@ async function onSubmit() {
 </script>
 
 <style scoped>
-.auth-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg-2, #0e1116); padding: 24px; }
-.auth-card { width: 100%; max-width: 380px; background: var(--bg-1, #161b22); border: 1px solid var(--border, #2a3038); border-radius: 12px; padding: 32px 28px; }
-.auth-title { font-size: 18px; font-weight: 600; color: var(--text-1, #e6edf3); margin: 0 0 20px; }
+.auth-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg-2); padding: 24px; }
+.auth-card { width: 100%; max-width: 380px; background: var(--bg-1); border: 1px solid var(--border); border-radius: 12px; padding: 32px 28px; }
+.auth-title { font-size: 18px; font-weight: 600; color: var(--text-1); margin: 0 0 20px; }
 .auth-form { display: flex; flex-direction: column; gap: 14px; }
 .fld { display: flex; flex-direction: column; gap: 5px; }
-.fld-lbl { font-size: 11px; letter-spacing: 0.08em; color: var(--text-2, #8b949e); }
-.fld input { background: var(--bg-2, #0e1116); border: 1px solid var(--border, #2a3038); border-radius: var(--radius-sm, 6px); padding: 9px 11px; font-size: 13px; color: var(--text-1, #e6edf3); outline: none; }
-.fld input:focus { border-color: var(--teal, #1d9e75); }
-.auth-err { font-size: 12px; color: var(--red, #e24b4a); margin: 0; }
-.btn-primary { margin-top: 4px; background: var(--teal, #1d9e75); color: #fff; border: none; border-radius: var(--radius-sm, 6px); padding: 10px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.fld-lbl { font-size: 11px; letter-spacing: 0.08em; color: var(--text-2); }
+.fld input { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius-sm, 6px); padding: 9px 11px; font-size: 13px; color: var(--text-1); outline: none; }
+.fld input:focus { border-color: var(--teal); }
+.auth-err { font-size: 12px; color: var(--red); margin: 0; }
+.btn-primary { margin-top: 4px; background: var(--teal); color: #fff; border: none; border-radius: var(--radius-sm, 6px); padding: 10px; font-size: 13px; font-weight: 600; cursor: pointer; }
 .btn-primary:disabled { opacity: 0.6; cursor: default; }
 .auth-links { display: flex; justify-content: space-between; margin-top: 16px; font-size: 12px; }
-.auth-links a { color: var(--teal, #1d9e75); text-decoration: none; }
+.auth-links a { color: var(--teal); text-decoration: none; }
 </style>

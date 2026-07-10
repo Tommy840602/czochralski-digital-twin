@@ -272,8 +272,8 @@ function fmt(v, d) {
 
 <style scoped>
 .rt-panel {
-  background: rgba(8, 14, 22, 0.88);
-  border: 1px solid rgba(56, 189, 248, 0.25);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
   border-radius: 10px;
   padding: 12px;
   backdrop-filter: blur(12px);
@@ -287,18 +287,18 @@ function fmt(v, d) {
   align-items: baseline;
   justify-content: space-between;
   padding-bottom: 8px;
-  border-bottom: 1px solid rgba(56, 189, 248, 0.15);
+  border-bottom: 1px solid var(--border);
 }
-.rt-title { font-size: 14px; font-weight: 700; color: #38bdf8; letter-spacing: 0.06em; }
-.rt-sub   { font-size: 10px; color: #4a6a88; }
+.rt-title { font-size: 14px; font-weight: 700; color: var(--teal); letter-spacing: 0.06em; }
+.rt-sub   { font-size: 10px; color: var(--text-2); }
 
-.rt-empty { font-size: 11px; color: #4a6a88; text-align: center; padding: 24px 0; }
+.rt-empty { font-size: 11px; color: var(--text-2); text-align: center; padding: 24px 0; }
 
 .rt-list { display: flex; flex-direction: column; gap: 10px; }
 
 .rt-card {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--overlay-muted);
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 8px 10px;
 }
@@ -308,9 +308,9 @@ function fmt(v, d) {
   justify-content: space-between;
   margin-bottom: 4px;
 }
-.rt-card-label { font-size: 9px; letter-spacing: 0.06em; color: #64748b; }
+.rt-card-label { font-size: 9px; letter-spacing: 0.06em; color: var(--text-2); }
 .rt-card-value { font-size: 14px; font-weight: 600; }
-.rt-unit { font-size: 9px; color: #64748b; margin-left: 2px; }
+.rt-unit { font-size: 9px; color: var(--text-2); margin-left: 2px; }
 
 .rt-chart { height: 64px; width: 100%; }
 </style>

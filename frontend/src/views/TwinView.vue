@@ -155,8 +155,8 @@ function fmt(val, dec) {
   top: 16px;
   right: 16px;
   width: 240px;
-  background: rgba(8, 14, 22, 0.88);
-  border: 1px solid rgba(56, 189, 248, 0.25);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
   border-radius: 10px;
   padding: 14px;
   backdrop-filter: blur(12px);
@@ -177,13 +177,13 @@ function fmt(val, dec) {
 .kpi-title {
   font-size: 18px;
   font-weight: 700;
-  color: #38bdf8;
+  color: var(--teal);
   letter-spacing: 0.08em;
 }
 
 .kpi-mode {
   font-size: 10px;
-  color: #64748b;
+  color: var(--text-2);
   background: rgba(56, 189, 248, 0.1);
   border: 1px solid rgba(56, 189, 248, 0.2);
   border-radius: 4px;
@@ -195,12 +195,12 @@ function fmt(val, dec) {
   margin-left: auto;
   background: transparent;
   border: none;
-  color: #64748b;
+  color: var(--text-2);
   cursor: pointer;
   font-size: 14px;
   padding: 2px 4px;
 }
-.kpi-close:hover { color: #f87171; }
+.kpi-close:hover { color: var(--red); }
 
 .kpi-grid {
   display: grid;
@@ -218,7 +218,7 @@ function fmt(val, dec) {
 
 .kpi-label {
   font-size: 9px;
-  color: #64748b;
+  color: var(--text-2);
   letter-spacing: 0.06em;
   margin-bottom: 4px;
 }
@@ -226,19 +226,19 @@ function fmt(val, dec) {
 .kpi-value {
   font-size: 18px;
   font-weight: 600;
-  color: #e2e8f0;
+  color: var(--text-0);
   line-height: 1;
 }
 
 .kpi-unit {
   font-size: 10px;
-  color: #64748b;
+  color: var(--text-2);
   margin-left: 2px;
 }
 
 .kpi-ingot {
   font-size: 10px;
-  color: #475569;
+  color: var(--text-2);
   letter-spacing: 0.06em;
   text-align: center;
   padding-top: 8px;
@@ -256,10 +256,10 @@ function fmt(val, dec) {
 }
 
 .pill {
-  background: rgba(8, 14, 22, 0.8);
-  border: 1px solid rgba(56, 189, 248, 0.2);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
   border-radius: 20px;
-  color: #64748b;
+  color: var(--text-2);
   cursor: pointer;
   font-size: 11px;
   letter-spacing: 0.06em;
@@ -268,24 +268,24 @@ function fmt(val, dec) {
   transition: all 0.2s;
 }
 .pill:hover {
-  border-color: rgba(56, 189, 248, 0.5);
-  color: #e2e8f0;
+  border-color: var(--border-hi);
+  color: var(--text-0);
 }
 .pill.active {
   background: rgba(56, 189, 248, 0.15);
-  border-color: #38bdf8;
-  color: #38bdf8;
+  border-color: var(--teal);
+  color: var(--teal);
 }
 
 .trends-toggle {
   position: absolute; top: 16px; left: 16px; z-index: 11;
-  background: rgba(8, 14, 22, 0.8);
-  border: 1px solid rgba(56, 189, 248, 0.25);
-  color: #38bdf8; border-radius: 6px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  color: var(--teal); border-radius: 6px;
   padding: 6px 12px; font-size: 11px; cursor: pointer;
   backdrop-filter: blur(8px); transition: border-color 0.2s;
 }
-.trends-toggle:hover { border-color: #38bdf8; }
+.trends-toggle:hover { border-color: var(--teal); }
 
 .trends-panel {
   position: absolute; top: 56px; left: 16px; bottom: 16px;

@@ -41,10 +41,10 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-2, #0e1116);
+  background: var(--bg-2);
 }
 .cb-text {
-  color: var(--text-2, #8b949e);
+  color: var(--text-2);
   font-size: 13px;
 }
 </style>

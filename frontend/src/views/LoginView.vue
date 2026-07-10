@@ -96,26 +96,26 @@ function oauth(provider) {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-2, #0e1116);
+  background: var(--bg-2);
   padding: 24px;
 }
 .auth-card {
   width: 100%;
   max-width: 380px;
-  background: var(--bg-1, #161b22);
-  border: 1px solid var(--border, #2a3038);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 32px 28px;
 }
 .auth-title {
   font-size: 18px;
   font-weight: 600;
-  color: var(--text-1, #e6edf3);
+  color: var(--text-1);
   margin: 0 0 4px;
 }
 .auth-sub {
   font-size: 12px;
-  color: var(--text-2, #8b949e);
+  color: var(--text-2);
   margin: 0 0 24px;
 }
 .auth-form {
@@ -131,28 +131,28 @@ function oauth(provider) {
 .fld-lbl {
   font-size: 11px;
   letter-spacing: 0.08em;
-  color: var(--text-2, #8b949e);
+  color: var(--text-2);
 }
 .fld input {
-  background: var(--bg-2, #0e1116);
-  border: 1px solid var(--border, #2a3038);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm, 6px);
   padding: 9px 11px;
   font-size: 13px;
-  color: var(--text-1, #e6edf3);
+  color: var(--text-1);
   outline: none;
 }
 .fld input:focus {
-  border-color: var(--teal, #1d9e75);
+  border-color: var(--teal);
 }
 .auth-err {
   font-size: 12px;
-  color: var(--red, #e24b4a);
+  color: var(--red);
   margin: 0;
 }
 .btn-primary {
   margin-top: 4px;
-  background: var(--teal, #1d9e75);
+  background: var(--teal);
   color: #fff;
   border: none;
   border-radius: var(--radius-sm, 6px);
@@ -172,7 +172,7 @@ function oauth(provider) {
   font-size: 12px;
 }
 .auth-links a {
-  color: var(--teal, #1d9e75);
+  color: var(--teal);
   text-decoration: none;
 }
 .divider {
@@ -180,7 +180,7 @@ function oauth(provider) {
   align-items: center;
   gap: 10px;
   margin: 22px 0 14px;
-  color: var(--text-2, #8b949e);
+  color: var(--text-2);
   font-size: 11px;
 }
 .divider::before,
@@ -188,7 +188,7 @@ function oauth(provider) {
   content: '';
   flex: 1;
   height: 1px;
-  background: var(--border, #2a3038);
+  background: var(--border);
 }
 .oauth-row {
   display: flex;
@@ -196,15 +196,15 @@ function oauth(provider) {
 }
 .btn-oauth {
   flex: 1;
-  background: var(--bg-2, #0e1116);
-  border: 1px solid var(--border, #2a3038);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm, 6px);
   padding: 8px;
   font-size: 12px;
-  color: var(--text-1, #e6edf3);
+  color: var(--text-1);
   cursor: pointer;
 }
 .btn-oauth:hover {
-  border-color: var(--teal, #1d9e75);
+  border-color: var(--teal);
 }
 </style>
