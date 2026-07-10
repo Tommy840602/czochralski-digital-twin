@@ -720,7 +720,7 @@ services:
     depends_on:
       mosquitto:
         condition: service_started
-    command: ["python", "main.py", "--furnace", "D1", "--csv", "data/D1_all.csv", "--interval", "0.1", "--host", "twin-mosquitto", "--api-port", "8091", "--loop"]
+    command: ["python", "main.py", "--furnace", "D1", "--csv", "data/D1_all.csv", "--interval", "1.0", "--host", "twin-mosquitto", "--api-port", "8091", "--loop"]
     networks:
       - twin-net
 
@@ -731,7 +731,7 @@ services:
     depends_on:
       mosquitto:
         condition: service_started
-    command: ["python", "main.py", "--furnace", "D3", "--csv", "data/D3_all.csv", "--interval", "0.1", "--host", "twin-mosquitto", "--api-port", "8092", "--loop"]
+    command: ["python", "main.py", "--furnace", "D3", "--csv", "data/D3_all.csv", "--interval", "1.0", "--host", "twin-mosquitto", "--api-port", "8092", "--loop"]
     networks:
       - twin-net
 
@@ -742,7 +742,7 @@ services:
     depends_on:
       mosquitto:
         condition: service_started
-    command: ["python", "main.py", "--furnace", "DB", "--csv", "data/DB_all.csv", "--interval", "0.1", "--host", "twin-mosquitto", "--api-port", "8093", "--loop"]
+    command: ["python", "main.py", "--furnace", "DB", "--csv", "data/DB_all.csv", "--interval", "1.0", "--host", "twin-mosquitto", "--api-port", "8093", "--loop"]
     networks:
       - twin-net
 
@@ -753,7 +753,7 @@ services:
     depends_on:
       mosquitto:
         condition: service_started
-    command: ["python", "main.py", "--furnace", "F7", "--csv", "data/F7_all.csv", "--interval", "0.1", "--host", "twin-mosquitto", "--api-port", "8094", "--loop"]
+    command: ["python", "main.py", "--furnace", "F7", "--csv", "data/F7_all.csv", "--interval", "1.0", "--host", "twin-mosquitto", "--api-port", "8094", "--loop"]
     networks:
       - twin-net
 
@@ -764,6 +764,6 @@ services:
     depends_on:
       mosquitto:
         condition: service_started
-    command: ["python", "main.py", "--furnace", "FA", "--csv", "data/FA_all.csv", "--interval", "0.1", "--host", "twin-mosquitto", "--api-port", "8095", "--loop"]
+    command: ["python", "main.py", "--furnace", "FA", "--csv", "data/FA_all.csv", "--interval", "1.0", "--host", "twin-mosquitto", "--api-port", "8095", "--loop"]
     networks:
       - twin-net

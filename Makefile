@@ -107,7 +107,7 @@ build-gateway:
 	cd services && mvn clean package -DskipTests
 
 build-flink:
-	cd flink-jobs && mvn clean package -DskipTests
+	cd services/flink-jobs && mvn clean package -DskipTests
 	@echo "Submit: flink run -c com.twin.flink.job.FurnaceStreamJob target/flink-jobs.jar"
 
 build-frontend:
@@ -116,11 +116,11 @@ build-frontend:
 # ── Test ─────────────────────────────────────────────────
 test:
 	cd services && mvn test
-	cd flink-jobs && mvn test
+	cd services/flink-jobs && mvn test
 	cd datapipe && python -m pytest tests/ -v
 
 # ── Clean ─────────────────────────────────────────────────
 clean:
 	cd services && mvn clean
-	cd flink-jobs && mvn clean
+	cd services/flink-jobs && mvn clean
 	cd frontend && rm -rf dist node_modules
