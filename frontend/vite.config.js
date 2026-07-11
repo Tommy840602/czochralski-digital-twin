@@ -38,7 +38,18 @@ export default defineConfig({
       '/ws': {
         target: 'ws://localhost:8085',
         ws: true,
-        changeOrigin: true
+        changeOrigin: true,
+        // 頁面重整、HMR、後端重啟時，SockJS/STOMP 連線會被切斷，
+        // proxy 對已關閉的 socket 寫入就會噴 EPIPE / ECONNRESET。
+        // 這是重連過程的正常現象（client 會自己重連），不需要洗版；
+        // 其他錯誤仍然印出來，不要盲目吞掉。
+        configure: (proxy) => {
+          const benign = new Set(['EPIPE', 'ECONNRESET', 'ECONNABORTED'])
+          proxy.on('error', (err) => {
+            if (benign.has(err.code)) return
+            console.error('[ws proxy]', err)
+          })
+        }
       }
     }
   }

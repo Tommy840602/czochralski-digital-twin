@@ -37,3 +37,9 @@ data/
 
 # 備份
 docker-compose.yml.bak
+
+# 診斷腳本的輸出（每次執行都會覆寫，不進版控）
+scripts/diag-output.txt
+
+# macOS
+.DS_Store

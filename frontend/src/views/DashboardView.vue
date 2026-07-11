@@ -19,11 +19,6 @@
         <span class="sum-lbl">離線</span>
       </div>
 
-      <div class="sum-item">
-        <span class="sum-val mono sum-alarm">{{ store.alarms.length }}</span>
-        <span class="sum-lbl">告警</span>
-      </div>
-
       <div class="sum-hint mono" v-if="anyOverlay">
         ⠿ 拖曳卡片把手到另一張卡可疊圖比較
       </div>
@@ -32,7 +27,7 @@
       <div class="sum-clock mono">{{ clock }}</div>
     </div>
 
-    <!-- ── 主體：爐子網格 + 告警 ───────────────────────── -->
+    <!-- ── 主體：爐子網格 ───────────────────────── -->
     <div class="dash-body">
       <div class="grid">
         <div
@@ -41,7 +36,6 @@
           class="fcard"
           :class="{
             'fcard--off': !isLive(f.furnaceId),
-            'fcard--alarm': hasAlarm(f.furnaceId),
             'fcard--dropping': dropTarget === f.furnaceId,
             'fcard--dragging': dragSrc === f.furnaceId,
           }"
@@ -227,27 +221,6 @@
           尚未載入爐子…
         </div>
       </div>
-
-      <!-- 告警側欄 -->
-      <aside class="alarm-panel">
-        <div class="ap-title mono">告警 ALARMS</div>
-
-        <div class="ap-list">
-          <div
-            v-for="(a, i) in store.alarms.slice(0, 20)"
-            :key="i"
-            class="ap-item"
-          >
-            <span class="ap-fid mono">{{ a.furnaceId }}</span>
-            <span class="ap-msg">{{ a.message ?? a.event ?? '—' }}</span>
-            <span class="ap-time mono">{{ timeText(a._clientTs) }}</span>
-          </div>
-
-          <div v-if="store.alarms.length === 0" class="ap-empty mono">
-            無告警
-          </div>
-        </div>
-      </aside>
     </div>
 
     <FurnaceOverlayChartModal
@@ -569,18 +542,6 @@ const liveCount = computed(() => {
   return (tick.value, store.furnaces.filter(f => isLive(f.furnaceId)).length)
 })
 
-const alarmIds = computed(() => {
-  const cut = Date.now() - 30_000
-
-  return new Set(
-    store.alarms
-      .filter(a => (a._clientTs ?? 0) > cut)
-      .map(a => a.furnaceId),
-  )
-})
-
-const hasAlarm = id => alarmIds.value.has(id)
-
 // ── 格式化 ───────────────────────────────────────────────
 function fmt(v, dp = 2) {
   if (v === null || v === undefined || !Number.isFinite(Number(v))) {
@@ -673,10 +634,6 @@ onUnmounted(() => {
   color: var(--text-2);
 }
 
-.sum-alarm {
-  color: var(--red);
-}
-
 .sum-lbl {
   font-size: 9px;
   letter-spacing: 0.14em;
@@ -744,11 +701,6 @@ onUnmounted(() => {
 
 .fcard--off {
   opacity: 0.55;
-}
-
-.fcard--alarm {
-  border-color: rgba(248, 113, 113, 0.5);
-  box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.2);
 }
 
 .fcard--dragging {
@@ -1009,69 +961,4 @@ onUnmounted(() => {
   margin-left: auto;
 }
 
-/* 告警側欄 */
-.alarm-panel {
-  width: 260px;
-  flex-shrink: 0;
-  background: var(--bg-1);
-  border-left: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-}
-
-.ap-title {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  color: var(--text-2);
-  padding: 14px 16px 10px;
-  border-bottom: 1px solid var(--border);
-}
-
-.ap-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.ap-item {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 8px;
-  align-items: baseline;
-  background: var(--bg-2);
-  border: 1px solid var(--border);
-  border-left: 2px solid var(--red);
-  border-radius: var(--radius-sm);
-  padding: 7px 9px;
-}
-
-.ap-fid {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--teal);
-}
-
-.ap-msg {
-  font-size: 11px;
-  color: var(--text-1);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ap-time {
-  font-size: 9px;
-  color: var(--text-2);
-}
-
-.ap-empty {
-  font-size: 11px;
-  color: var(--text-2);
-  text-align: center;
-  padding: 20px 0;
-}
 </style>
