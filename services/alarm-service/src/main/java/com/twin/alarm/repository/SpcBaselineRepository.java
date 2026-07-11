@@ -10,9 +10,13 @@ import java.util.Optional;
 
 public interface SpcBaselineRepository extends JpaRepository<SpcBaseline, Long> {
 
-    Optional<SpcBaseline> findByFurnaceIdAndParamName(String furnaceId, String paramName);
+    /** baseline 以 (furnace, param, operationMode) 為唯一鍵 */
+    Optional<SpcBaseline> findByFurnaceIdAndParamNameAndOperationMode(
+            String furnaceId, String paramName, String operationMode);
 
     List<SpcBaseline> findByFurnaceId(String furnaceId);
+
+    List<SpcBaseline> findByFurnaceIdAndOperationMode(String furnaceId, String operationMode);
 
     List<SpcBaseline> findByParamName(String paramName);
 

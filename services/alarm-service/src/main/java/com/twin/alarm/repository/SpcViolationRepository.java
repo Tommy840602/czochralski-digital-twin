@@ -37,4 +37,9 @@ public interface SpcViolationRepository extends JpaRepository<SpcViolation, SpcV
     @Transactional
     @Query("DELETE FROM SpcViolation v WHERE v.furnaceId = :furnaceId AND v.paramName = :paramName")
     void deleteByFurnaceIdAndParamName(@Param("furnaceId") String furnaceId, @Param("paramName") String paramName);
+
+    @Modifying
+    @Transactional
+    @Query("DELETE FROM SpcViolation v WHERE v.furnaceId = :furnaceId")
+    void deleteByFurnaceId(@Param("furnaceId") String furnaceId);
 }

@@ -23,7 +23,10 @@
       </button>
 
       <div class="sigma-control">
-        <label>σ 寬鬆度（{{ paramLabel(selectedParam) }}）</label>
+        <label>
+          σ 寬鬆度（{{ paramLabel(selectedParam) }}
+          <span v-if="currentMode" class="cur-mode">· {{ currentMode }}</span>）
+        </label>
         <input
           type="number" min="0.5" max="3" step="0.1"
           v-model.number="sigmaMultiplier"
@@ -37,8 +40,15 @@
       </div>
     </div>
 
+    <!-- 載入失敗：明確告知，不要顯示一堆 0（0 在 SPC 代表製程穩定，會誤導） -->
+    <div v-if="loadError" class="load-error">
+      <div class="le-title">⚠ 無法取得 SPC 資料</div>
+      <div class="le-msg">{{ loadError }}</div>
+      <button class="le-retry" @click="fetchData">重試</button>
+    </div>
+
     <!-- 統計摘要 (8 條 Rules) — 只顯示目前選中爐子 -->
-    <div class="stats-grid">
+    <div v-if="!loadError" class="stats-grid">
       <div v-for="(rule, id) in rules" :key="id" class="stat-card">
         <div class="stat-header">
           <span class="rule-id">Rule {{ id }}</span>
@@ -50,9 +60,11 @@
       </div>
     </div>
 
-    <div class="chart-panel">
+    <div v-if="!loadError" class="chart-panel">
       <div class="chart-header">
-        <h2>{{ selectedFurnace }} · {{ paramLabel(selectedParam) }}</h2>
+        <h2>{{ selectedFurnace }} · {{ paramLabel(selectedParam) }}
+          <span v-if="currentMode" class="chart-mode">目前階段：{{ currentMode }}</span>
+        </h2>
         <select v-model="selectedParam" class="param-select">
           <option v-for="p in params" :key="p.key" :value="p.key">
             {{ p.label }} ({{ p.unit }})
@@ -73,7 +85,7 @@
       </div>
     </div>
 
-    <div class="violation-panel">
+    <div v-if="!loadError" class="violation-panel">
       <div class="violation-header">
         <h2>{{ selectedFurnace }} 違規事件 (最近 60 分鐘)</h2>
         <span class="count-badge">{{ furnaceViolations.length }}</span>
@@ -151,6 +163,7 @@ const selectedFurnace = ref(localStorage.getItem(STORAGE_KEY) && furnaces.includ
   ? localStorage.getItem(STORAGE_KEY)
   : 'D1')
 const selectedParam = ref('heaterTemp')
+// 製程階段：baseline 以 (爐, 參數, 階段) 為單位，各階段分佈不同，管制界不能共用
 const baselines = ref([])
 const violations = ref([])
 const furnaceStatistics = ref({})       // 目前參數的違規數
@@ -158,6 +171,8 @@ const furnaceTotalStatistics = ref({})  // 整爐（全部參數）的違規數
 const timeseries = ref([])
 const busy = ref(false)
 const sigmaMultiplier = ref(1.0)
+/** 載入失敗訊息。有值時整頁不顯示統計，避免把「抓不到」誤畫成「數值是 0」 */
+const loadError = ref(null)
 
 const chartRef = ref(null)
 
@@ -166,8 +181,17 @@ let refreshTimer = null
 let disposed = false
 let fetching = false
 
+/**
+ * 爐子「當下」的製程階段，由後端取最新一筆原始讀值（與數位孿生同源）。
+ * 不能用圖上最後一個子群推斷——1 分鐘子群有延遲，跨階段那分鐘還會取樣本較多的舊 mode。
+ */
+const currentMode = ref('')
+
+/** 當下階段的 baseline（非穩態階段沒有 → undefined） */
 const currentBaseline = computed(() => {
-  return baselines.value.find(b => b.paramName === selectedParam.value)
+  return baselines.value.find(
+    b => b.paramName === selectedParam.value && b.operationMode === currentMode.value
+  )
 })
 
 const furnaceViolations = computed(() => {
@@ -217,13 +241,15 @@ async function fetchData() {
       nextViolations,
       nextFurnaceStatistics,
       nextFurnaceTotalStatistics,
-      nextTimeseries
+      nextTimeseries,
+      nextCurrentMode
     ] = await Promise.all([
       spcService.getBaselines(selectedFurnace.value),
       spcService.getRecentViolations(60),
       spcService.getStatistics(1440, selectedFurnace.value, selectedParam.value),
       spcService.getStatistics(1440, selectedFurnace.value),
-      spcService.getTimeseries(selectedFurnace.value, selectedParam.value, 60)
+      spcService.getTimeseries(selectedFurnace.value, selectedParam.value, 120),
+      spcService.getCurrentMode(selectedFurnace.value)
     ])
 
     if (disposed) return
@@ -233,12 +259,15 @@ async function fetchData() {
     furnaceStatistics.value = nextFurnaceStatistics || {}
     furnaceTotalStatistics.value = nextFurnaceTotalStatistics || {}
     timeseries.value = Array.isArray(nextTimeseries) ? nextTimeseries : []
+    currentMode.value = nextCurrentMode || ''
 
+    // σ 寬鬆度顯示「當下階段」那一組的值
     if (currentBaseline.value) {
       sigmaMultiplier.value = currentBaseline.value.sigmaMultiplier ?? 1.0
     }
 
     updateChart()
+    loadError.value = null
   } catch (e) {
     if (disposed) return
 
@@ -247,6 +276,11 @@ async function fetchData() {
       return
     }
 
+    // 不要把「抓不到資料」畫成「數值是 0」——0 在 SPC 代表製程穩定，
+    // 跟「服務還沒起來」是完全不同的意思，混在一起會嚴重誤導判讀。
+    loadError.value = (e.response?.status === 404 || !e.response)
+      ? '無法連線到 SPC 服務（alarm-service 可能還在啟動中，約需 1～2 分鐘）'
+      : `載入失敗：${e.response?.status ?? ''} ${e.message}`
     console.error('[SPC] fetch failed', e)
   } finally {
     fetching = false
@@ -269,44 +303,66 @@ function handleSessionExpired() {
 }
 
 function updateChart() {
-  if (!chart || !currentBaseline.value) return
-  const b = currentBaseline.value
+  if (!chart) return
 
-  const times = timeseries.value.map(p => formatTime(p.ts))
-  const points = timeseries.value.map(p => {
-    const outside3sigma = p.value > b.ucl3sigma || p.value < b.lcl3sigma
-    const outside2sigma = p.value > b.ucl2sigma || p.value < b.lcl2sigma
+  const ts = timeseries.value
+  if (!ts.length) {
+    chart.clear()
+    return
+  }
 
+  const times = ts.map(p => formatTime(p.ts))
+
+  // 每個點用「它自己所處階段」的管制界判定顏色
+  const points = ts.map(p => {
     let color = '#1890ff'
     let symbolSize = 6
-
-    if (outside3sigma) {
-      color = '#ff4d4f'
-      symbolSize = 10
-    } else if (outside2sigma) {
-      color = '#faad14'
-      symbolSize = 8
+    if (p.ucl3sigma != null) {
+      if (p.value > p.ucl3sigma || p.value < p.lcl3sigma) {
+        color = '#ff4d4f'; symbolSize = 10
+      } else if (p.value > p.ucl2sigma || p.value < p.lcl2sigma) {
+        color = '#faad14'; symbolSize = 8
+      }
     }
-
-    return {
-      value: p.value,
-      itemStyle: { color },
-      symbolSize
-    }
+    return { value: p.value, itemStyle: { color }, symbolSize }
   })
 
-  // 隨主題翻轉的顏色（讀取當前 CSS 變數）
+  // 管制界畫成階梯線：階段一換就跳到該階段的值；非穩態階段沒有 baseline → 該段斷開
+  const limitSeries = (key, name, color, type, width, opacity) => ({
+    name,
+    type: 'line',
+    step: 'middle',
+    data: ts.map(p => p[key] ?? null),
+    symbol: 'none',
+    connectNulls: false,
+    silent: true,
+    lineStyle: { color, type, width, opacity: opacity ?? 1 },
+    z: 1
+  })
+
   const cAxisLabel = cssVar('--text-1', '#8b949e')
   const cGridLine = cssVar('--bg-3', '#2a3038')
-  const cMarkLabel = cssVar('--text-0', '#e6edf3')
+
+  const all = []
+  for (const p of ts) {
+    if (p.value != null) all.push(p.value)
+    if (p.ucl3sigma != null) all.push(p.ucl3sigma, p.lcl3sigma)
+  }
+  const lo = Math.min(...all), hi = Math.max(...all)
+  const pad = (hi - lo) * 0.08 || 1
 
   const option = {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',
       formatter: (params) => {
-        const p = params[0]
-        return `${p.axisValue}<br/>${p.marker} value: ${p.value.toFixed(3)}<br/>μ: ${b.mean.toFixed(2)}, σ: ${b.stdDev.toFixed(3)}`
+        const p = ts[params[0].dataIndex]
+        const lim = p.ucl3sigma != null
+          ? `<br/>μ: ${p.mean.toFixed(2)}　±3σ: ${p.lcl3sigma.toFixed(2)} ~ ${p.ucl3sigma.toFixed(2)}`
+          : '<br/><span style="opacity:.6">此階段為非穩態，無管制界</span>'
+        return `${params[0].axisValue}`
+          + `<br/><b>${p.mode ?? '—'}</b>`
+          + `<br/>value: <b>${p.value.toFixed(3)}</b>${lim}`
       }
     },
     grid: { left: 60, right: 40, top: 30, bottom: 60 },
@@ -318,12 +374,17 @@ function updateChart() {
     },
     yAxis: {
       type: 'value',
-      min: () => Math.floor(Math.min(...timeseries.value.map(p => p.value), b.lcl3sigma) / 10) * 10,
-      max: () => Math.ceil(Math.max(...timeseries.value.map(p => p.value), b.ucl3sigma) / 10) * 10,
+      min: +(lo - pad).toFixed(3),
+      max: +(hi + pad).toFixed(3),
       axisLabel: { color: cAxisLabel },
       splitLine: { lineStyle: { color: cGridLine } }
     },
     series: [
+      limitSeries('ucl3sigma', 'UCL 3σ', '#ff4d4f', 'dashed', 1.5),
+      limitSeries('lcl3sigma', 'LCL 3σ', '#ff4d4f', 'dashed', 1.5),
+      limitSeries('ucl2sigma', '+2σ', '#faad14', 'dashed', 1, 0.7),
+      limitSeries('lcl2sigma', '-2σ', '#faad14', 'dashed', 1, 0.7),
+      limitSeries('mean', 'Mean', '#52c41a', 'solid', 2),
       {
         name: 'Value',
         type: 'line',
@@ -331,30 +392,7 @@ function updateChart() {
         symbol: 'circle',
         smooth: false,
         lineStyle: { color: '#1890ff', width: 1.5 },
-        markArea: {
-          silent: true,
-          data: [
-            [{ yAxis: b.ucl2sigma, itemStyle: { color: 'rgba(255, 77, 79, 0.08)' } }, { yAxis: b.ucl3sigma }],
-            [{ yAxis: b.lcl3sigma, itemStyle: { color: 'rgba(255, 77, 79, 0.08)' } }, { yAxis: b.lcl2sigma }],
-            [{ yAxis: b.ucl1sigma, itemStyle: { color: 'rgba(250, 173, 20, 0.06)' } }, { yAxis: b.ucl2sigma }],
-            [{ yAxis: b.lcl2sigma, itemStyle: { color: 'rgba(250, 173, 20, 0.06)' } }, { yAxis: b.lcl1sigma }],
-            [{ yAxis: b.lcl1sigma, itemStyle: { color: 'rgba(82, 196, 26, 0.05)' } }, { yAxis: b.ucl1sigma }]
-          ]
-        },
-        markLine: {
-          silent: true,
-          symbol: 'none',
-          label: { position: 'end', color: cMarkLabel, fontSize: 10 },
-          data: [
-            { yAxis: b.mean, name: 'Avg', lineStyle: { color: '#52c41a', type: 'solid', width: 2 } },
-            { yAxis: b.ucl3sigma, name: 'UCL 3σ', lineStyle: { color: '#ff4d4f', type: 'dashed', width: 1.5 } },
-            { yAxis: b.lcl3sigma, name: 'LCL 3σ', lineStyle: { color: '#ff4d4f', type: 'dashed', width: 1.5 } },
-            { yAxis: b.ucl2sigma, name: '+2σ', lineStyle: { color: '#faad14', type: 'dashed', opacity: 0.7 } },
-            { yAxis: b.lcl2sigma, name: '-2σ', lineStyle: { color: '#faad14', type: 'dashed', opacity: 0.7 } },
-            { yAxis: b.ucl1sigma, name: '+1σ', lineStyle: { color: '#8b949e', type: 'dotted', opacity: 0.5 } },
-            { yAxis: b.lcl1sigma, name: '-1σ', lineStyle: { color: '#8b949e', type: 'dotted', opacity: 0.5 } }
-          ]
-        }
+        z: 3
       }
     ]
   }
@@ -409,9 +447,12 @@ async function rebuildBaseline() {
   )
 }
 
+/** σ 寬鬆度調整「當下階段」那一組 baseline */
 async function applySigmaMultiplier() {
+  if (!currentMode.value) return
   await runHeavyJob(
-    () => spcService.adjustSigmaMultiplier(selectedFurnace.value, selectedParam.value, sigmaMultiplier.value),
+    () => spcService.adjustSigmaMultiplier(
+      selectedFurnace.value, selectedParam.value, currentMode.value, sigmaMultiplier.value),
     selectedFurnace.value
   )
 }
@@ -436,6 +477,7 @@ watch(selectedParam, async () => {
   if (disposed) return
   await fetchData()
 })
+
 
 // 主題切換時，重繪圖表讓軸色/背景跟著翻轉
 watch(theme, () => {
@@ -526,6 +568,41 @@ onBeforeUnmount(() => {
   background: var(--bg-1);
   border: 1px solid var(--border);
   border-radius: 8px;
+}
+
+
+.load-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 48px 24px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--amber);
+  border-radius: 8px;
+  margin-bottom: 24px;
+}
+.le-title { font-size: 15px; font-weight: 600; color: var(--amber); }
+.le-msg   { font-size: 12px; color: var(--text-2); text-align: center; }
+.le-retry {
+  margin-top: 6px;
+  padding: 6px 18px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-1);
+  font-size: 12px;
+  cursor: pointer;
+}
+.le-retry:hover { border-color: var(--teal); color: var(--teal); }
+
+
+.chart-mode {
+  color: var(--teal);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  margin-left: 6px;
 }
 
 .btn-rebuild {

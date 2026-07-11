@@ -25,6 +25,10 @@ public class SpcBaseline {
     @Column(name = "param_name", nullable = false, length = 32)
     private String paramName;
 
+    /** 製程階段（MELT / NECK4 / CROWN / BODY / HOLDING…）。各階段分佈不同，baseline 必須分開建。 */
+    @Column(name = "operation_mode", nullable = false, length = 30)
+    private String operationMode;
+
     @Column(name = "mean", nullable = false)
     private Double mean;
 

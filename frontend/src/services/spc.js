@@ -6,9 +6,23 @@ export const spcService = {
     return res.data
   },
 
-  async getBaseline(furnaceId, paramName) {
-    const res = await api.get(`/spc/baseline/one`, { params: { furnaceId, paramName } })
+  async getBaseline(furnaceId, paramName, operationMode) {
+    const res = await api.get(`/spc/baseline/one`, {
+      params: { furnaceId, paramName, operationMode }
+    })
     return res.data
+  },
+
+  /** 該爐近 7 天出現過的製程階段（baseline 以此為單位建立） */
+  async getModes(furnaceId) {
+    const res = await api.get(`/spc/modes`, { params: { furnaceId } })
+    return res.data
+  },
+
+  /** 爐子「當下」的製程階段（取最新一筆原始讀值，與數位孿生同源） */
+  async getCurrentMode(furnaceId) {
+    const res = await api.get(`/spc/current-mode`, { params: { furnaceId } })
+    return res.data?.mode ?? ''
   },
 
   async getParams() {
@@ -47,17 +61,21 @@ export const spcService = {
     return res.data.inProgress
   },
 
-  /** 調整某爐某參數的 σ 寬鬆度倍數 */
-  async adjustSigmaMultiplier(furnaceId, paramName, multiplier) {
+  /** 調整某爐某參數在某製程階段的 σ 寬鬆度倍數 */
+  async adjustSigmaMultiplier(furnaceId, paramName, operationMode, multiplier) {
     const res = await api.patch(`/spc/baseline/sigma-multiplier`, null, {
-      params: { furnaceId, paramName, multiplier }
+      params: { furnaceId, paramName, operationMode, multiplier }
     })
     return res.data
   },
 
-  async getTimeseries(furnaceId, paramName, minutes = 60) {
+  /**
+   * 管制圖資料點：最近 N 個「一分鐘子群平均」的即時資料（不切階段）。
+   * 每個點自帶它所屬階段的管制界，前端畫成隨階段跳動的階梯線。
+   */
+  async getTimeseries(furnaceId, paramName, points = 120) {
     const res = await api.get(`/spc/timeseries`, {
-      params: { furnaceId, paramName, minutes }
+      params: { furnaceId, paramName, points }
     })
     return res.data
   },

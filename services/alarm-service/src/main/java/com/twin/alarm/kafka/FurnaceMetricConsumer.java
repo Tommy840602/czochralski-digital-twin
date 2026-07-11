@@ -43,6 +43,7 @@ public class FurnaceMetricConsumer {
 
             String furnaceId = textOrEmpty(node, "furnaceId");
             String ingotId = textOrEmpty(node, "ingotNo");
+            String operationMode = textOrEmpty(node, "operationMode");
 
             if (furnaceId.isEmpty()) return;
 
@@ -56,7 +57,7 @@ public class FurnaceMetricConsumer {
 
             if (values.isEmpty()) return;
 
-            spcCheckService.checkAllParams(furnaceId, ingotId, Instant.now(), values);
+            spcCheckService.checkAllParams(furnaceId, ingotId, operationMode, Instant.now(), values);
         } catch (Exception e) {
             log.debug("Failed to parse furnace-data record: {}", e.getMessage());
         }
