@@ -104,32 +104,40 @@ public class OeeService {
         return Math.min(avgGrMean / targetGrMean, 1.0);
     }
 
-    /** Quality：按 ingot_no 分組取最終長度，排除仍在進行中的最新一根，跟目標長度比較是否達標 */
+    /**
+     * Quality：按 ingot_no 分組取最終長度，排除仍在進行中的最新一根，跟目標長度比較是否達標。
+     *
+     * 改讀 furnace_metrics_1min 連續聚合，不掃原始表：
+     * 原本 latest_ingot 子查詢完全沒有時間範圍，會掃整張百萬筆的 hypertable，
+     * 導致這支 API 慢到超過 gateway 斷路器的逾時（對外表現成 404）。
+     * body_length 在同一根晶棒內是遞增的，所以取「每分鐘平均的最大值」即可代表最終長度。
+     */
     @SuppressWarnings("unchecked")
     private QualityResult calculateQuality(String furnaceId, int minutes, double targetLengthMm, double thresholdPct) {
         String sql = """
                 WITH ingot_stats AS (
                     SELECT
                         ingot_no,
-                        MAX(body_length) AS final_length,
-                        MAX(time) AS last_seen
-                    FROM furnace_metrics
+                        MAX(avg_body_length) AS final_length
+                    FROM furnace_metrics_1min
                     WHERE furnace_id = ?1
-                      AND time >= NOW() - (?2 || ' minutes')::interval
+                      AND bucket >= NOW() - (?2 || ' minutes')::interval
                       AND ingot_no IS NOT NULL
-                      AND body_length IS NOT NULL
+                      AND avg_body_length IS NOT NULL
                     GROUP BY ingot_no
                 ),
                 latest_ingot AS (
                     SELECT ingot_no
-                    FROM furnace_metrics
+                    FROM furnace_metrics_1min
                     WHERE furnace_id = ?1
-                    ORDER BY time DESC
+                      AND bucket >= NOW() - (?2 || ' minutes')::interval
+                      AND ingot_no IS NOT NULL
+                    ORDER BY bucket DESC
                     LIMIT 1
                 )
                 SELECT s.ingot_no, s.final_length
                 FROM ingot_stats s
-                WHERE s.ingot_no != (SELECT ingot_no FROM latest_ingot)
+                WHERE s.ingot_no IS DISTINCT FROM (SELECT ingot_no FROM latest_ingot)
                 """;
 
         List<Object[]> rows = em.createNativeQuery(sql)
