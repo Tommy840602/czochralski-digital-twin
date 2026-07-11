@@ -15,6 +15,8 @@ OPC-UA/MQTT 採集 → Kafka → Flink CEP → 多儲存層 → Spring Boot API 
 - 所有 Spring Boot 服務都要加 `@EnableDiscoveryClient` 對接 Eureka
 - TimescaleDB 用 JPA，不用 R2DBC
 - Slack 通知只在 `AlarmService` 裡觸發，其他服務不直接呼叫
+- **改完 Java 一定要先 `mvn package` 再 `docker compose build`**：各服務的 Dockerfile 只做 `COPY target/*.jar`，不在 image 內編譯。只跑 `docker compose up --build`（或 `--force-recreate`）會把 **舊 jar** 打包進去，程式不會更新
+- **`.env` 的變數若被 config-server（native profile）服務的設定檔引用**（如 `${SLACK_WEBHOOK_URL}`），要同時注入 **config-server** 容器：它在伺服端就解析 placeholder，只給 client 容器會拿到預設值
 
 ## 版本矩陣
 

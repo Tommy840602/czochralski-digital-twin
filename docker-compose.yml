@@ -503,6 +503,10 @@ services:
   config-server:
     build: ./services/config-server
     container_name: twin-config
+    environment:
+      # native profile 的 config-server 會在伺服端解析 ${SLACK_WEBHOOK_URL}，
+      # 所以這裡也要有值，否則 alarm-service 拿到的是佔位 URL（Slack 會停用）
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
     ports:
       - "8888:8888"
     depends_on:
@@ -588,6 +592,7 @@ services:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9093
       SPRING_PROFILES_ACTIVE: docker
       SPRING_CONFIG_IMPORT: optional:configserver:http://twin-config:8888
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
     depends_on:
       timescaledb:
         condition: service_started

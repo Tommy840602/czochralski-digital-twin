@@ -26,6 +26,7 @@ public class SpcCheckService {
     private final SpcBaselineRepository baselineRepo;
     private final SpcViolationRepository violationRepo;
     private final KafkaTemplate<String, String> kafka;
+    private final AlarmService alarmService;
 
     public static final String SPC_ALERTS_TOPIC = "spc-alerts";
 
@@ -33,7 +34,15 @@ public class SpcCheckService {
     private static final long DEDUPE_SECONDS = 300;
     private final Map<String, Instant> lastRecordTime = new ConcurrentHashMap<>();
 
+    /** 判定爐子「運轉中」的加熱器溫度門檻（與 OeeService 的 availability 判準一致） */
+    private static final double RUNNING_HEATER_TEMP_C = 20.0;
+
     public void checkAllParams(String furnaceId, String ingotId, Instant ts, Map<String, Double> values) {
+        // 爐子未運轉時，各感測值為 0 或負值，會大量撞出 ±3σ 而誤報 CRITICAL。
+        // 那是閒置/換爐的雜訊、不是製程異常 → 這種情況仍記錄 SPC 違規，但不發 Slack。
+        Double heaterTemp = values.get("heaterTemp");
+        boolean furnaceRunning = heaterTemp != null && heaterTemp > RUNNING_HEATER_TEMP_C;
+
         for (Map.Entry<String, String> entry : SpcBaselineService.PARAM_COLUMN.entrySet()) {
             String paramName = entry.getKey();
             Double value = values.get(paramName);
@@ -80,6 +89,19 @@ public class SpcCheckService {
 
                     log.warn("SPC violation: {} {} rule={} value={} severity={}",
                             furnaceId, paramName, v.getRuleId(), String.format("%.2f", value), v.getSeverity());
+
+                    // CRITICAL → 交給 AlarmService 發 Slack（Slack 只在 AlarmService 觸發）
+                    // 護欄：爐子未運轉、或量測值為 0（感測器閒置）時不通知，避免洗版誤報
+                    if ("CRITICAL".equalsIgnoreCase(v.getSeverity())) {
+                        if (furnaceRunning && value != 0.0) {
+                            alarmService.notifySpcCritical(
+                                    furnaceId, ingotId, paramName, v.getRuleId(), v.getRuleName(),
+                                    value, baseline.getMean(), baseline.getUcl3sigma(), baseline.getLcl3sigma());
+                        } else {
+                            log.debug("CRITICAL 但爐子未運轉或值為 0，略過 Slack: {} {} value={}",
+                                    furnaceId, paramName, value);
+                        }
+                    }
                 } catch (Exception e) {
                     log.error("Failed to save SPC violation: {}", e.getMessage());
                 }
