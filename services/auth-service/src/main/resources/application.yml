@@ -70,8 +70,19 @@ management:
         include: health,info
 logging:
   level:
-    org.springframework.security: DEBUG
-    org.springframework.web: DEBUG
+    # ⚠ 千萬不要在正式環境開 DEBUG。
+    #
+    #   org.springframework.web 的 DEBUG 會把「每個 request body 原封不動印出來」，
+    #   包含 /auth/login 的明文密碼、/auth/register 的密碼、密碼重設 token：
+    #
+    #     Read "application/json" to [LoginRequest[usernameOrEmail=admin, password=admin1234]]
+    #                                                                     ^^^^^^^^^^^^^^^^^^^
+    #   這些 log 會進 docker logs，開了 ELK 之後還會進 Elasticsearch——
+    #   任何拿得到 log 的人等於拿到所有使用者的密碼。
+    #
+    #   要在本機除錯就設環境變數：LOG_LEVEL_SECURITY=DEBUG LOG_LEVEL_WEB=DEBUG
+    org.springframework.security: ${LOG_LEVEL_SECURITY:INFO}
+    org.springframework.web: ${LOG_LEVEL_WEB:INFO}
 
 ---
 # ════════════════════════════════════════════════════════════════════
