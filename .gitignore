@@ -18,7 +18,9 @@ dist/
 # 環境變數（真值）
 .env
 .env.local
+.env.prod
 !.env.example
+!.env.prod.example
 !frontend/.env.development
 
 # IDE
@@ -43,3 +45,4 @@ scripts/diag-output.txt
 
 # macOS
 .DS_Store
+scripts/mem-report-output.txt

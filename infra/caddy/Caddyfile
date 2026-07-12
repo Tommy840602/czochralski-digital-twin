@@ -1,0 +1,79 @@
+# ============================================================
+#  Caddy — 反向代理 + 自動 TLS（Let's Encrypt）
+#
+#  這是整套系統「唯一」對公網開放的入口。
+#  所有其他服務（DB / Redis / Kafka / ES / MQTT）都只在 twin-net 內部網路，
+#  不發布任何 host port——把它們裸開到公網會在數小時內被自動化掃描攻陷。
+#
+#  變數由 .env.prod 提供（docker compose 會注入）：
+#    DOMAIN                主網域，例如 tommy-huang.dev
+#    ACME_EMAIL            Let's Encrypt 通知信箱
+#    ADMIN_USER            管理介面的 basic auth 帳號
+#    ADMIN_PASSWORD_HASH   bcrypt hash（用 `docker run --rm caddy caddy hash-password` 產生）
+# ============================================================
+
+{
+	email {$ACME_EMAIL}
+	# 憑證失敗時不要整個服務起不來
+	auto_https on
+}
+
+# ── 主站：使用者介面 ─────────────────────────────────────────
+# 前端容器的 nginx 內部已經代理 /api → api-gateway、/ws → furnace-service，
+# 所以這裡整站轉給它即可（WebSocket 的 Upgrade 由 reverse_proxy 自動處理）。
+{$DOMAIN}, www.{$DOMAIN} {
+	encode zstd gzip
+
+	# 基本安全標頭
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	reverse_proxy frontend:80
+}
+
+# ── 管理介面：全部走 HTTPS，且一律加上 basic auth ────────────
+# 這些介面本身沒有（或只有很弱的）認證：
+#   Kibana → 後端 ES 的 xpack.security 是關的，等於無認證
+#   Kafka UI / Flink UI → 完全無認證，可以直接操作叢集
+# 所以在 Caddy 這層強制擋一道。
+
+(admin_auth) {
+	basic_auth {
+		{$ADMIN_USER} {$ADMIN_PASSWORD_HASH}
+	}
+}
+
+# Grafana 有自己的登入頁，不疊 basic auth（避免雙重登入）
+grafana.{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy grafana:3000
+}
+
+kibana.{$DOMAIN} {
+	import admin_auth
+	encode zstd gzip
+	reverse_proxy kibana:5601
+}
+
+kafka.{$DOMAIN} {
+	import admin_auth
+	encode zstd gzip
+	reverse_proxy kafka-ui:8080
+}
+
+flink.{$DOMAIN} {
+	import admin_auth
+	encode zstd gzip
+	reverse_proxy flink-jobmanager:8081
+}
+
+prometheus.{$DOMAIN} {
+	import admin_auth
+	encode zstd gzip
+	reverse_proxy prometheus:9090
+}

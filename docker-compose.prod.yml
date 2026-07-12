@@ -1,10 +1,40 @@
 # ============================================================
-#  長晶爐數位孿生 — 生產環境 Docker Compose（完整版）
-#  新增爐子：在 simulator-* 區塊仿照格式加一個 service
+#  ⚠ 這個檔案由 docker-compose.yml 轉換而來（scripts/gen-prod-compose.py）
+#     改動請先改 dev 版，再重新生成，避免兩邊分歧。
+#
+#  與 dev 的差異：
+#    1. 不發布任何 host port —— 只有 caddy 綁 80/443
+#    2. 所有密碼改為必填環境變數（.env.prod）
+#    3. Redis 加上 requirepass
+#    4. 每個容器設記憶體上限（目標：CX43 / 16GB）
+#    5. restart: always
+#
+#  ── 記憶體預算（Hetzner CX43 = 16GB，OS + Docker 約佔 1.2GB）──────────
+#
+#  預設啟動的容器 mem_limit 總和 ≈ 14.5 GB。
+#  注意 mem_limit 是「上限」不是「預留」——實際用量預估 10～12 GB。
+#  跑起來後務必用 scripts/mem-report.sh 量真實數字再決定要不要調整。
+#
+#  可選元件（預設不啟動，用 --profile 開啟）：
+#    --profile elk     Elasticsearch + Kibana + Logstash   (+3.0 GB)
+#    --profile extras  Schema Registry（目前程式碼沒用到）  (+0.4 GB)
+#
+#  例：docker compose --env-file .env.prod -f docker-compose.prod.yml \
+#        --profile elk up -d
+#
+#  16GB 機器上請保持 elk 關閉；升級到 32GB 之後再開。
+# ============================================================
+#  長晶爐數位孿生 — 基礎設施一鍵啟動
+#  Czochralski Digital Twin Infrastructure
 # ============================================================
 
 x-restart: &restart-policy
   restart: always
+
+# Spring Boot 服務共用的 JVM 參數。
+#   MaxRAMPercentage：讓 JVM 依「容器」上限算 heap，而不是主機記憶體
+#   UseSerialGC     ：小 heap + 少核心的情境下，比 G1 省幾十 MB 且延遲夠用
+x-jvm: &jvm-opts "-XX:MaxRAMPercentage=70 -XX:+UseSerialGC -Xss512k"
 
 x-logging: &default-logging
   logging:
@@ -30,8 +60,37 @@ volumes:
   mosquitto-data:
   mosquitto-log:
   flink-checkpoint:
+  caddy-data:
+  caddy-config:
 
 services:
+
+  # ─────────────────────────────────────────
+  # 0. CADDY — 唯一對公網開放的入口（反向代理 + 自動 TLS）
+  #    其餘服務一律只走 twin-net，不發布任何 host port。
+  # ─────────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    container_name: twin-caddy
+    mem_limit: 128m
+    <<: [*restart-policy, *default-logging]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?未設定}
+      ACME_EMAIL: ${ACME_EMAIL:?未設定}
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:?未設定}
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - twin-net
+    depends_on:
+      - frontend
 
   # ─────────────────────────────────────────
   # 1. MQTT BROKER (Eclipse Mosquitto)
@@ -39,10 +98,9 @@ services:
   mosquitto:
     image: eclipse-mosquitto:2.0
     container_name: twin-mosquitto
+    mem_limit: 128m
     <<: [*restart-policy, *default-logging]
-    ports:
-      - "1883:1883"
-      - "9001:9001"
+    # ports: 不對外發布（只有 caddy 綁 80/443）
     volumes:
       - ./infra/mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - mosquitto-data:/mosquitto/data
@@ -61,11 +119,14 @@ services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.6.0
     container_name: twin-zookeeper
+    mem_limit: 384m
     <<: [*restart-policy, *default-logging]
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
       ZOOKEEPER_SYNC_LIMIT: 2
+      # 只管 1 個 broker，256m heap 綽綽有餘（預設是 512m）
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx256m"
     volumes:
       - zookeeper-data:/var/lib/zookeeper/data
       - zookeeper-log:/var/lib/zookeeper/log
@@ -83,14 +144,12 @@ services:
   kafka:
     image: confluentinc/cp-kafka:7.6.0
     container_name: twin-kafka
+    mem_limit: 1024m
     <<: [*restart-policy, *default-logging]
     depends_on:
       zookeeper:
         condition: service_healthy
-    ports:
-      - "9092:9092"
-      - "9093:9093"
-      - "9094:9094"
+    # ports: 不對外發布（只有 caddy 綁 80/443）
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
@@ -107,6 +166,9 @@ services:
       KAFKA_DEFAULT_REPLICATION_FACTOR: 1
       KAFKA_JMX_PORT: 9999
       KAFKA_JMX_HOSTNAME: kafka
+      # 單 broker、3 個 topic、低吞吐 → 640m heap 足夠（預設 1g）。
+      # 剩下的容器記憶體留給 page cache，Kafka 讀寫本來就重度依賴它。
+      KAFKA_HEAP_OPTS: "-Xms640m -Xmx640m"
     volumes:
       - kafka-data:/var/lib/kafka/data
     networks:
@@ -115,33 +177,41 @@ services:
       test: ["CMD-SHELL", "nc -z localhost 9093 || exit 1"]
       interval: 15s
       timeout: 10s
-      retries: 10
-      start_period: 30s
+      retries: 20
+      start_period: 200s
+    stop_grace_period: 30s
 
   # ─────────────────────────────────────────
-  # 4. KAFKA SCHEMA REGISTRY
+  # 4. KAFKA SCHEMA REGISTRY  ── 可選（--profile extras）
+  #
+  #    目前程式碼「沒有用到」它：Kafka 訊息是純 JSON，沒有 Avro。
+  #    iot-gateway 的 application.yml 雖然有 `kafka.schema-registry` 這個
+  #    設定值，但 Java 端從未讀取（grep 過，零引用）——是遺留設定。
+  #    16GB 機器上省下 512m 比留著它有意義。
   # ─────────────────────────────────────────
   schema-registry:
     image: confluentinc/cp-schema-registry:7.6.0
     container_name: twin-schema-registry
+    profiles: ["extras"]
+    mem_limit: 384m
     <<: [*restart-policy, *default-logging]
     depends_on:
       kafka:
         condition: service_healthy
-    ports:
-      - "8081:8081"
+    # ports: 不對外發布（只有 caddy 綁 80/443）
     environment:
       SCHEMA_REGISTRY_HOST_NAME: schema-registry
       SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9093
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_HEAP_OPTS: "-Xms256m -Xmx256m"
     networks:
       - twin-net
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8081/subjects"]
       interval: 15s
-      timeout: 5s
+      timeout: 10s
       retries: 10
-      start_period: 20s
+      start_period: 60s
 
   # ─────────────────────────────────────────
   # 5. KAFKA TOPICS INIT (一次性建立 Topics)
@@ -154,41 +224,39 @@ services:
         condition: service_healthy
     networks:
       - twin-net
-    command: >
-      bash -c "
+    restart: "no"
+    command:
+      - bash
+      - -c
+      - |
         echo '=== 建立 Kafka Topics ==='
-        kafka-topics --bootstrap-server kafka:9093 --create --if-not-exists \
-          --topic furnace-data --partitions 3 --replication-factor 1 \
-          --config retention.ms=604800000 --config cleanup.policy=delete
-        kafka-topics --bootstrap-server kafka:9093 --create --if-not-exists \
-          --topic sensor-events --partitions 3 --replication-factor 1 \
-          --config retention.ms=604800000
-        kafka-topics --bootstrap-server kafka:9093 --create --if-not-exists \
-          --topic alarm-events --partitions 1 --replication-factor 1 \
-          --config retention.ms=2592000000
+        kafka-topics --bootstrap-server kafka:9093 --create --if-not-exists --topic furnace-data --partitions 3 --replication-factor 1 --config retention.ms=604800000 --config cleanup.policy=delete
+        kafka-topics --bootstrap-server kafka:9093 --create --if-not-exists --topic sensor-events --partitions 3 --replication-factor 1 --config retention.ms=604800000
+        kafka-topics --bootstrap-server kafka:9093 --create --if-not-exists --topic alarm-events --partitions 1 --replication-factor 1 --config retention.ms=2592000000
         echo '=== Topics 清單 ==='
         kafka-topics --bootstrap-server kafka:9093 --list
         echo '=== 完成 ==='
-      "
 
   # ─────────────────────────────────────────
-  # 6. KAFKA UI
+  # 6. KAFKA UI (便於開發查看)
   # ─────────────────────────────────────────
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: twin-kafka-ui
+    mem_limit: 384m
     <<: [*restart-policy, *default-logging]
     depends_on:
       kafka:
         condition: service_healthy
-    ports:
-      - "8080:8080"
+    # ports: 不對外發布（只有 caddy 綁 80/443）
     environment:
       KAFKA_CLUSTERS_0_NAME: twin-cluster
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9093
-      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
+      # SCHEMAREGISTRY 拿掉：schema-registry 預設不啟動（--profile extras），
+      # 留著會讓 kafka-ui 每次輪詢都對一個不存在的 host 噴錯。
       KAFKA_CLUSTERS_0_METRICS_PORT: 9999
       DYNAMIC_CONFIG_ENABLED: "true"
+      JAVA_OPTS: "-XX:MaxRAMPercentage=70 -XX:+UseSerialGC"
     networks:
       - twin-net
 
@@ -198,26 +266,29 @@ services:
   flink-jobmanager:
     image: flink:2.2.1-java17
     container_name: twin-flink-jobmanager
+    mem_limit: 1g
     <<: [*restart-policy, *default-logging]
     command: jobmanager
-    ports:
-      - "8083:8081"
+    # ports: 不對外發布（只有 caddy 綁 80/443）
     environment:
       - |
         FLINK_PROPERTIES=
         jobmanager.rpc.address: flink-jobmanager
-        jobmanager.memory.process.size: 1600m
-        taskmanager.memory.process.size: 2048m
-        taskmanager.numberOfTaskSlots: 4
-        parallelism.default: 2
+        jobmanager.memory.process.size: 900m
+        taskmanager.memory.process.size: 1792m
+        taskmanager.numberOfTaskSlots: 2
+        parallelism.default: 1
         state.backend: hashmap
         state.checkpoints.dir: file:///opt/flink/checkpoints
         execution.checkpointing.interval: 30s
         execution.checkpointing.mode: EXACTLY_ONCE
         rest.flamegraph.enabled: true
+        akka.ask.timeout: 60 s
+        web.timeout: 60000
+        heartbeat.timeout: 180000
+        heartbeat.interval: 30000
     volumes:
       - flink-checkpoint:/opt/flink/checkpoints
-      - ./flink-jobs/target/flink-jobs-1.0.0-SNAPSHOT.jar:/opt/flink-jobs.jar:ro
     networks:
       - twin-net
     healthcheck:
@@ -233,37 +304,57 @@ services:
   flink-taskmanager:
     image: flink:2.2.1-java17
     container_name: twin-flink-taskmanager
+    mem_limit: 2g
     <<: [*restart-policy, *default-logging]
     command: taskmanager
     depends_on:
       flink-jobmanager:
         condition: service_healthy
     environment:
+      - TIMESCALE_URL=jdbc:postgresql://twin-timescaledb:5432/furnace_db
+      - TIMESCALE_USER=${POSTGRES_USER:-twin}
+      - TIMESCALE_PASSWORD=${POSTGRES_PASSWORD}
+      - MONGO_URI=mongodb://${MONGO_USER:-twin}:${MONGO_PASSWORD}@twin-mongodb:27017/twin_db?authSource=admin
+      - REDIS_HOST=twin-redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - KAFKA_BOOTSTRAP=twin-kafka:9093
       - |
         FLINK_PROPERTIES=
         jobmanager.rpc.address: flink-jobmanager
-        taskmanager.memory.process.size: 2048m
-        taskmanager.numberOfTaskSlots: 4
-        parallelism.default: 2
+        taskmanager.memory.process.size: 1792m
+        taskmanager.numberOfTaskSlots: 2
+        parallelism.default: 1
         state.backend: hashmap
         state.checkpoints.dir: file:///opt/flink/checkpoints
+        akka.ask.timeout: 60 s
+        web.timeout: 60000
+        heartbeat.timeout: 180000
+        heartbeat.interval: 30000
     volumes:
       - flink-checkpoint:/opt/flink/checkpoints
     networks:
       - twin-net
 
   # ─────────────────────────────────────────
-  # 9. TIMESCALEDB
+  # 9. TIMESCALEDB (長晶爐時序數據)
   # ─────────────────────────────────────────
   timescaledb:
     image: timescale/timescaledb:latest-pg16
     container_name: twin-timescaledb
+    mem_limit: 2560m
     <<: [*restart-policy, *default-logging]
-    ports:
-      - "5433:5432"
+    # ports: 不對外發布（只有 caddy 綁 80/443）
     environment:
-      POSTGRES_USER: twin
-      POSTGRES_PASSWORD: twin_secret
+      # timescaledb-tune 預設讀「主機」記憶體去算 shared_buffers / work_mem，
+      # 會遠超容器上限 → Postgres 被 OOM killer 用 signal 9 殺掉（本機發生過，
+      # 整個 DB 進 recovery mode）。這裡必須明確鎖定調校基準。
+      # 抓 mem_limit 的 ~75%，留 page cache 與連線的空間。
+      TS_TUNE_MEMORY: 1900MB
+      TS_TUNE_NUM_CPUS: "4"
+      TS_TUNE_MAX_CONNS: "80"
+      POSTGRES_USER: ${POSTGRES_USER:-twin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?未設定}
       POSTGRES_DB: furnace_db
       TIMESCALEDB_TELEMETRY: "off"
     volumes:
@@ -278,17 +369,20 @@ services:
       retries: 10
 
   # ─────────────────────────────────────────
-  # 10. MONGODB
+  # 10. MONGODB (感測器數據 + Alarms)
   # ─────────────────────────────────────────
   mongodb:
     image: mongo:7.0
     container_name: twin-mongodb
+    mem_limit: 1024m
     <<: [*restart-policy, *default-logging]
-    ports:
-      - "27017:27017"
+    # WiredTiger 預設 cache = (RAM-1GB)/2，同樣是讀「主機」記憶體 → 會爆掉容器上限。
+    # 明確鎖定 0.4GB。
+    command: ["mongod", "--wiredTigerCacheSizeGB", "0.4"]
+    # ports: 不對外發布（只有 caddy 綁 80/443）
     environment:
-      MONGO_INITDB_ROOT_USERNAME: twin
-      MONGO_INITDB_ROOT_PASSWORD: twin_secret
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-twin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?未設定}
       MONGO_INITDB_DATABASE: twin_db
     volumes:
       - mongo-data:/data/db
@@ -302,17 +396,18 @@ services:
       retries: 10
 
   # ─────────────────────────────────────────
-  # 11. REDIS
+  # 11. REDIS (即時快取 + Pub/Sub)
   # ─────────────────────────────────────────
   redis:
     image: redis:7.2-alpine
     container_name: twin-redis
+    mem_limit: 512m
     <<: [*restart-policy, *default-logging]
-    ports:
-      - "6379:6379"
+    # ports: 不對外發布（只有 caddy 綁 80/443）
     command: >
       redis-server
-      --maxmemory 512mb
+      --requirepass ${REDIS_PASSWORD:?未設定}
+      --maxmemory 320mb
       --maxmemory-policy allkeys-lru
       --appendonly no
       --save ""
@@ -322,21 +417,32 @@ services:
     networks:
       - twin-net
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 3s
       retries: 10
 
+  # ═════════════════════════════════════════════════════════════
+  #  ELK ── 可選（--profile elk），16GB 機器上預設「關閉」
+  #
+  #  三個容器合計 3.0 GB，是整套系統最大的一塊非必要開銷。
+  #  沒有任何應用服務依賴它們（grep 過 services/：零引用）——
+  #  logstash 只是把 docker log 收進 ES 供 Kibana 查詢。
+  #  關掉之後看 log 就用 `docker logs`，對兩台爐子的規模完全夠用。
+  #
+  #  升級到 32GB 之後，加 `--profile elk` 就會一起啟動。
+  # ═════════════════════════════════════════════════════════════
+
   # ─────────────────────────────────────────
-  # 12. ELASTICSEARCH
+  # 12. ELASTICSEARCH (系統 Log)
   # ─────────────────────────────────────────
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
     container_name: twin-elasticsearch
+    profiles: ["elk"]
+    mem_limit: 2g
     <<: [*restart-policy, *default-logging]
-    ports:
-      - "9200:9200"
-      - "9300:9300"
+    # ports: 不對外發布（只有 caddy 綁 80/443）
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
@@ -361,20 +467,21 @@ services:
       start_period: 60s
 
   # ─────────────────────────────────────────
-  # 13. KIBANA
+  # 13. KIBANA (Log 分析 UI)
   # ─────────────────────────────────────────
   kibana:
     image: docker.elastic.co/kibana/kibana:8.13.0
     container_name: twin-kibana
+    profiles: ["elk"]
+    mem_limit: 768m
     <<: [*restart-policy, *default-logging]
     depends_on:
       elasticsearch:
         condition: service_healthy
-    ports:
-      - "5601:5601"
+    # ports: 不對外發布（只有 caddy 綁 80/443）
     environment:
       ELASTICSEARCH_HOSTS: '["http://elasticsearch:9200"]'
-      KIBANA_SYSTEM_PASSWORD: twin_secret
+      KIBANA_SYSTEM_PASSWORD: ${ELASTIC_PASSWORD:-unused}
       xpack.security.enabled: "false"
       SERVER_NAME: twin-kibana
     networks:
@@ -387,20 +494,18 @@ services:
       start_period: 60s
 
   # ─────────────────────────────────────────
-  # 14. LOGSTASH
+  # 14. LOGSTASH (Log Pipeline)
   # ─────────────────────────────────────────
   logstash:
     image: docker.elastic.co/logstash/logstash:8.13.0
     container_name: twin-logstash
+    profiles: ["elk"]
+    mem_limit: 768m
     <<: [*restart-policy, *default-logging]
     depends_on:
       elasticsearch:
         condition: service_healthy
-    ports:
-      - "5044:5044"
-      - "5010:5000/tcp"
-      - "5010:5000/udp"
-      - "9600:9600"
+    # ports: 不對外發布（只有 caddy 綁 80/443）
     environment:
       LS_JAVA_OPTS: "-Xmx256m -Xms256m"
     volumes:
@@ -415,9 +520,9 @@ services:
   prometheus:
     image: prom/prometheus:v2.51.0
     container_name: twin-prometheus
+    mem_limit: 512m
     <<: [*restart-policy, *default-logging]
-    ports:
-      - "9090:9090"
+    # ports: 不對外發布（只有 caddy 綁 80/443）
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -442,18 +547,18 @@ services:
   grafana:
     image: grafana/grafana:10.4.0
     container_name: twin-grafana
+    mem_limit: 384m
     <<: [*restart-policy, *default-logging]
     depends_on:
       prometheus:
         condition: service_healthy
-    ports:
-      - "3000:3000"
+    # ports: 不對外發布（只有 caddy 綁 80/443）
     environment:
-      GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: twin_admin
+      GF_SECURITY_ADMIN_USER: ${ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?未設定}
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
-      GF_SERVER_ROOT_URL: http://localhost:3000
+      GF_SERVER_ROOT_URL: https://grafana.${DOMAIN}
     volumes:
       - grafana-data:/var/lib/grafana
       - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
@@ -467,11 +572,12 @@ services:
       start_period: 30s
 
   # ─────────────────────────────────────────
-  # 17. NODE EXPORTER
+  # 17. NODE EXPORTER (主機指標)
   # ─────────────────────────────────────────
   node-exporter:
     image: prom/node-exporter:v1.7.0
     container_name: twin-node-exporter
+    mem_limit: 96m
     <<: [*restart-policy, *default-logging]
     command:
       - '--path.rootfs=/host'
@@ -483,15 +589,14 @@ services:
     volumes:
       - /:/host:ro
 
-  # ─────────────────────────────────────────
-  # 18-23. SPRING BOOT 微服務（從 Docker Hub 拉取）
-  # ─────────────────────────────────────────
   eureka-server:
-    image: tommy840602/czochralski-eureka:latest
+    build: ./services/eureka-server
     container_name: twin-eureka
-    <<: [*restart-policy, *default-logging]
-    ports:
-      - "8761:8761"
+    mem_limit: 448m
+    <<: *restart-policy
+    # ports: 不對外發布（只有 caddy 綁 80/443）
+    environment:
+      JAVA_TOOL_OPTIONS: *jvm-opts
     networks:
       - twin-net
     healthcheck:
@@ -501,24 +606,37 @@ services:
       retries: 5
 
   config-server:
-    image: tommy840602/czochralski-config:latest
+    build: ./services/config-server
     container_name: twin-config
-    <<: [*restart-policy, *default-logging]
-    ports:
-      - "8888:8888"
+    mem_limit: 448m
+    <<: *restart-policy
+    environment:
+      JAVA_TOOL_OPTIONS: *jvm-opts
+      # native profile 的 config-server 會在伺服端解析 ${SLACK_WEBHOOK_URL}，
+      # 所以這裡也要有值，否則 alarm-service 拿到的是佔位 URL（Slack 會停用）
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+    # ports: 不對外發布（只有 caddy 綁 80/443）
     depends_on:
       eureka-server:
         condition: service_healthy
     networks:
       - twin-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8888/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 90s
 
   iot-gateway:
-    image: tommy840602/czochralski-iot-gateway:latest
+    build: ./services/iot-gateway
     container_name: twin-iot-gateway
-    <<: [*restart-policy, *default-logging]
-    ports:
-      - "8090:8090"
+    mem_limit: 512m
+    <<: *restart-policy
+    # ports: 不對外發布（只有 caddy 綁 80/443）
     environment:
+      - JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=70 -XX:+UseSerialGC -Xss512k
+      - SPRING_PROFILES_ACTIVE=docker
       - SPRING_CONFIG_IMPORT=optional:configserver:http://twin-config:8888
       - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://twin-eureka:8761/eureka/
       - SPRING_MQTT_BROKER_URL=tcp://twin-mosquitto:1883
@@ -528,174 +646,251 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
-      mosquitto:
-        condition: service_healthy
     networks:
       - twin-net
 
   furnace-service:
-    image: tommy840602/czochralski-furnace:latest
+    build: ./services/furnace-service
     container_name: twin-furnace-service
-    <<: [*restart-policy, *default-logging]
-    ports:
-      - "8091:8091"
+    mem_limit: 640m
+    <<: *restart-policy
+    # ports: 不對外發布（只有 caddy 綁 80/443）
     environment:
+      - JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=70 -XX:+UseSerialGC -Xss512k
+      - SPRING_PROFILES_ACTIVE=docker
       - SPRING_CONFIG_IMPORT=optional:configserver:http://twin-config:8888
-      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://twin-eureka:8761/eureka/
-      - SPRING_DATA_REDIS_HOST=twin-redis
       - SPRING_DATASOURCE_URL=jdbc:postgresql://twin-timescaledb:5432/furnace_db
-      - SPRING_DATASOURCE_USERNAME=twin
-      - SPRING_DATASOURCE_PASSWORD=twin_secret
-      - SPRING_DATASOURCE_HIKARI_MAX_LIFETIME=600000
-      - SPRING_DATASOURCE_HIKARI_KEEPALIVE_TIME=60000
-      - SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT=5000
+      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-twin}
+      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD}
+      - SPRING_DATA_REDIS_HOST=twin-redis
+      - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}
+      - SPRING_DATA_REDIS_PORT=6379
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=twin-kafka:9093
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://twin-eureka:8761/eureka/
+      - EUREKA_INSTANCE_HOSTNAME=twin-furnace-service
+      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=false
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
     depends_on:
       eureka-server:
         condition: service_healthy
-      redis:
+      kafka:
         condition: service_healthy
       timescaledb:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - twin-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8091/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 200s
 
   alarm-service:
-    image: tommy840602/czochralski-alarm:latest
+    build: ./services/alarm-service
+    image: tommy840602/czochralski-alarm-service:latest
     container_name: twin-alarm-service
-    <<: [*restart-policy, *default-logging]
-    ports:
-      - "8092:8092"
+    mem_limit: 768m
+    # ports: 不對外發布（只有 caddy 綁 80/443）
     environment:
-      - SPRING_CONFIG_IMPORT=optional:configserver:http://twin-config:8888
-      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://twin-eureka:8761/eureka/
-      - SPRING_KAFKA_BOOTSTRAP_SERVERS=twin-kafka:9093
+      JAVA_TOOL_OPTIONS: *jvm-opts
+      DB_HOST: timescaledb
+      DB_PORT: "5432"
+      DB_NAME: furnace_db
+      DB_USER: ${POSTGRES_USER:-twin}
+      DB_PASS: ${POSTGRES_PASSWORD}
+      EUREKA_URI: http://twin-eureka:8761/eureka
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9093
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_CONFIG_IMPORT: optional:configserver:http://twin-config:8888
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
     depends_on:
+      timescaledb:
+        condition: service_started
       eureka-server:
         condition: service_healthy
       kafka:
         condition: service_healthy
     networks:
       - twin-net
-
+    restart: unless-stopped
   api-gateway:
-    image: tommy840602/czochralski-api-gateway:latest
+    build: ./services/api-gateway
     container_name: twin-api-gateway
-    <<: [*restart-policy, *default-logging]
-    ports:
-      - "8085:8085"
+    mem_limit: 512m
+    <<: *restart-policy
+    # ports: 不對外發布（只有 caddy 綁 80/443）
     environment:
+      - JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=70 -XX:+UseSerialGC -Xss512k
+      - SPRING_PROFILES_ACTIVE=docker
       - SPRING_CONFIG_IMPORT=optional:configserver:http://twin-config:8888
       - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://twin-eureka:8761/eureka/
+      - JWT_SECRET=${JWT_SECRET}
     depends_on:
       eureka-server:
         condition: service_healthy
     networks:
       - twin-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8085/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
 
-  # ─────────────────────────────────────────
-  # 24. FRONTEND
-  # ─────────────────────────────────────────
-  frontend:
-    image: tommy840602/czochralski-frontend:latest
-    container_name: twin-frontend
-    <<: [*restart-policy, *default-logging]
-    ports:
-      - "80:80"
+  auth-service:
+    build: ./services/auth-service
+    image: tommy840602/czochralski-auth-service:latest
+    container_name: auth-service
+    mem_limit: 512m
     depends_on:
-      - api-gateway
-      - furnace-service
+      - timescaledb
+      - eureka-server
+      - redis
+    environment:
+      JAVA_TOOL_OPTIONS: *jvm-opts
+      DB_HOST: timescaledb
+      DB_PORT: "5432"
+      DB_NAME: authdb
+      DB_USER: ${POSTGRES_USER:-twin}
+      DB_PASS: ${POSTGRES_PASSWORD}
+      EUREKA_URI: http://twin-eureka:8761/eureka
+      JWT_SECRET: ${JWT_SECRET}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REGISTER_SMS_REQUIRED: "true"
+      EMAIL_FROM: no-reply@twin.local
+      PWD_RESET_FRONTEND: http://localhost:5173/reset-password
+      OAUTH_REDIRECT_BASE: http://localhost:8085
+      OAUTH_FRONTEND_CALLBACK: http://localhost:5173/login/callback
+      OAUTH_FRONTEND_LOGIN: http://localhost:5173/login
+      # OAuth
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
+      AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET:-}
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:-common}
+      # SMS
+      SMS_PROVIDER: ${SMS_PROVIDER:-log}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
+      # Email
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-log}
+      MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      # reCAPTCHA
+      RECAPTCHA_SECRET: ${RECAPTCHA_SECRET:-}
+    # ports: 不對外發布（只有 caddy 綁 80/443）
+    networks:
+      - twin-net
+    restart: unless-stopped
+
+  frontend:
+    build: frontend
+    container_name: twin-frontend
+    mem_limit: 128m
+    <<: *restart-policy
+    # ports: 不對外發布（只有 caddy 綁 80/443）
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+      furnace-service:
+        condition: service_healthy
     networks:
       - twin-net
 
-  # ─────────────────────────────────────────
-  # 25. FLINK JOB SUBMITTER（自動提交 job，容器啟動後執行一次）
-  # ─────────────────────────────────────────
   flink-job-submitter:
-    image: flink:2.2.1-java17
+    image: curlimages/curl:latest
     container_name: twin-flink-submitter
     depends_on:
       flink-jobmanager:
         condition: service_healthy
-      kafka-init:
-        condition: service_completed_successfully
     volumes:
-      - ./flink-jobs/target/flink-jobs-1.0.0-SNAPSHOT.jar:/opt/flink-jobs.jar:ro
+      - ./services/flink-jobs/target:/jars:ro
     networks:
       - twin-net
     restart: "no"
-    entrypoint: /bin/bash
+    entrypoint: ["/bin/sh", "-c"]
     command:
-      - -c
       - |
-        echo "等待 Flink JobManager REST API..."
-        until curl -sf http://flink-jobmanager:8081/overview > /dev/null 2>&1; do
-          sleep 3
-        done
-        echo "Flink 就緒，檢查既有 job..."
-        if flink list -m flink-jobmanager:8081 2>/dev/null | grep -qE 'RUNNING.*FurnaceStreamJob'; then
-          echo "Job 已在跑，略過提交。"
-          exit 0
-        fi
-        echo "提交 Flink Job..."
-        flink run -d -m flink-jobmanager:8081 \
-          -c com.twin.flink.job.FurnaceStreamJob \
-          /opt/flink-jobs.jar
-        echo "完成。"
+        echo "Waiting for Flink..."
+        sleep 10
+        echo "Uploading jar..."
+        RESPONSE=$$(curl -s -X POST http://twin-flink-jobmanager:8081/jars/upload \
+          -H "Expect:" \
+          -F "jarfile=@/jars/flink-jobs-1.0.0-SNAPSHOT.jar")
+        JAR_ID=$$(echo $$RESPONSE | grep -o '"filename":"[^"]*"' | sed 's|.*upload/||;s|"||g')
+        echo "JAR ID: $$JAR_ID"
+        sleep 3
+        curl -s -X POST "http://twin-flink-jobmanager:8081/jars/$$JAR_ID/run" \
+          -H "Content-Type: application/json" \
+          -d '{"entryClass":"com.twin.flink.job.FurnaceStreamJob","parallelism":1}'
+        echo "Job submitted!"
 
-  # ─────────────────────────────────────────
-  # 26-30. SIMULATOR（從 Docker Hub 拉取，新增爐子請仿照此格式）
-  # ─────────────────────────────────────────
   simulator-d1:
-    image: tommy840602/czochralski-simulator:latest
+    build: ./datapipe
     container_name: twin-simulator-d1
+    mem_limit: 128m
     <<: [*restart-policy, *default-logging]
     depends_on:
       mosquitto:
-        condition: service_healthy
-    command: ["python", "main.py", "--furnace", "D1", "--csv", "data/D1_all.csv", "--interval", "0.1", "--host", "twin-mosquitto", "--api-port", "8091"]
+        condition: service_started
+    command: ["python", "main.py", "--furnace", "D1", "--csv", "data/D1_all.csv", "--interval", "1.0", "--host", "twin-mosquitto", "--api-port", "8091", "--loop"]
     networks:
       - twin-net
 
   simulator-d3:
-    image: tommy840602/czochralski-simulator:latest
+    build: ./datapipe
     container_name: twin-simulator-d3
+    mem_limit: 128m
     <<: [*restart-policy, *default-logging]
     depends_on:
       mosquitto:
-        condition: service_healthy
-    command: ["python", "main.py", "--furnace", "D3", "--csv", "data/D3_all.csv", "--interval", "0.1", "--host", "twin-mosquitto", "--api-port", "8092"]
+        condition: service_started
+    command: ["python", "main.py", "--furnace", "D3", "--csv", "data/D3_all.csv", "--interval", "1.0", "--host", "twin-mosquitto", "--api-port", "8092", "--loop"]
     networks:
       - twin-net
 
   simulator-db:
-    image: tommy840602/czochralski-simulator:latest
+    build: ./datapipe
     container_name: twin-simulator-db
+    mem_limit: 128m
     <<: [*restart-policy, *default-logging]
     depends_on:
       mosquitto:
-        condition: service_healthy
-    command: ["python", "main.py", "--furnace", "DB", "--csv", "data/DB_all.csv", "--interval", "0.1", "--host", "twin-mosquitto", "--api-port", "8093"]
+        condition: service_started
+    command: ["python", "main.py", "--furnace", "DB", "--csv", "data/DB_all.csv", "--interval", "1.0", "--host", "twin-mosquitto", "--api-port", "8093", "--loop"]
     networks:
       - twin-net
 
   simulator-f7:
-    image: tommy840602/czochralski-simulator:latest
+    build: ./datapipe
     container_name: twin-simulator-f7
+    mem_limit: 128m
     <<: [*restart-policy, *default-logging]
     depends_on:
       mosquitto:
-        condition: service_healthy
-    command: ["python", "main.py", "--furnace", "F7", "--csv", "data/F7_all.csv", "--interval", "0.1", "--host", "twin-mosquitto", "--api-port", "8094"]
+        condition: service_started
+    command: ["python", "main.py", "--furnace", "F7", "--csv", "data/F7_all.csv", "--interval", "1.0", "--host", "twin-mosquitto", "--api-port", "8094", "--loop"]
     networks:
       - twin-net
 
   simulator-fa:
-    image: tommy840602/czochralski-simulator:latest
+    build: ./datapipe
     container_name: twin-simulator-fa
+    mem_limit: 128m
     <<: [*restart-policy, *default-logging]
     depends_on:
       mosquitto:
-        condition: service_healthy
-    command: ["python", "main.py", "--furnace", "FA", "--csv", "data/FA_all.csv", "--interval", "0.1", "--host", "twin-mosquitto", "--api-port", "8095"]
+        condition: service_started
+    command: ["python", "main.py", "--furnace", "FA", "--csv", "data/FA_all.csv", "--interval", "1.0", "--host", "twin-mosquitto", "--api-port", "8095", "--loop"]
     networks:
       - twin-net

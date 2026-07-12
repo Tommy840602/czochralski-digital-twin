@@ -61,6 +61,8 @@ public class FurnaceStreamJob {
     static final String RHOST = System.getenv().getOrDefault("REDIS_HOST",  "twin-redis");
     static final int    RPORT = Integer.parseInt(
             System.getenv().getOrDefault("REDIS_PORT", "6379"));
+    /** 生產環境的 Redis 有 requirepass；本機開發沒有，留空即可 */
+    static final String RPASS = System.getenv().getOrDefault("REDIS_PASSWORD", "");
 
     public static void main(String[] args) throws Exception {
         // 容錯：task 失敗時自動重試（最多重試很多次，每次間隔10秒），
@@ -94,7 +96,7 @@ public class FurnaceStreamJob {
         stream.sinkTo(new TimescaleDbSink()).name("sink-timescaledb");
 
         // ── Sink：Redis（即時爐況，TTL=60s） ──────────────────────────────
-        stream.sinkTo(new RedisSink(RHOST, RPORT)).name("sink-redis");
+        stream.sinkTo(new RedisSink(RHOST, RPORT, RPASS)).name("sink-redis");
 
         // ── Sink：MongoDB（原始備份） ─────────────────────────────────────
         stream.sinkTo(new MongoDbSink(MONGO)).name("sink-mongodb");

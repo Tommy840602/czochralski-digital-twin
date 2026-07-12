@@ -23,15 +23,22 @@ public class RedisSink implements Sink<FurnaceReading> {
 
     private final String host;
     private final int    port;
+    /** Redis 密碼；生產環境必填（Redis 開了 requirepass）。本機開發留空即可。 */
+    private final String password;
 
     public RedisSink(String host, int port) {
+        this(host, port, null);
+    }
+
+    public RedisSink(String host, int port, String password) {
         this.host = host;
         this.port = port;
+        this.password = (password == null || password.isBlank()) ? null : password;
     }
 
     @Override
     public SinkWriter<FurnaceReading> createWriter(WriterInitContext ctx) throws IOException {
-        return new RedisWriter(host, port);
+        return new RedisWriter(host, port, password);
     }
 
     static class RedisWriter implements SinkWriter<FurnaceReading> {
@@ -39,11 +46,13 @@ public class RedisSink implements Sink<FurnaceReading> {
         private static final ObjectMapper M = new ObjectMapper();
         private final JedisPool pool;
 
-        RedisWriter(String host, int port) {
+        RedisWriter(String host, int port, String password) {
             JedisPoolConfig cfg = new JedisPoolConfig();
             cfg.setMaxTotal(8);
             cfg.setMaxIdle(4);
-            pool = new JedisPool(cfg, host, port, 2000);
+            pool = (password == null)
+                    ? new JedisPool(cfg, host, port, 2000)
+                    : new JedisPool(cfg, host, port, 2000, password);
         }
 
         @Override
