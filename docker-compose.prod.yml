@@ -271,6 +271,29 @@ services:
     command: jobmanager
     # ports: 不對外發布（只有 caddy 綁 80/443）
     environment:
+      # ⚠ 這些「必須」也給 JobManager，不是只給 TaskManager。
+      #
+      #   FurnaceStreamJob 是這樣寫的：
+      #       static final String RPASS = System.getenv()...   // 類別載入時求值
+      #       stream.sinkTo(new RedisSink(RHOST, RPORT, RPASS)); // 在 main() 裡建構
+      #
+      #   main() 跑在 JobManager（提交 job、建 execution graph 時），不是 TaskManager。
+      #   密碼在 JobManager 讀出來、序列化進 sink 物件，才送去 TaskManager 執行。
+      #   只給 TaskManager 的話，RPASS 是空字串 → Jedis 不送 AUTH →
+      #   Redis 回 "ERR Protocol error: unauthenticated multibulk length" →
+      #   sink 拋 IOException → 整個 job 無限重啟。
+      #
+      #   （TimescaleDbSink 和 RegistryFilter 是在 open() 裡讀 env，那才是在
+      #     TaskManager 執行，所以它們只要 TaskManager 有值就夠——也因此
+      #     資料進得了 TimescaleDB 卻進不了 Redis，症狀非常容易誤導。）
+      - TIMESCALE_URL=jdbc:postgresql://twin-timescaledb:5432/furnace_db
+      - TIMESCALE_USER=${POSTGRES_USER:-twin}
+      - TIMESCALE_PASSWORD=${POSTGRES_PASSWORD}
+      - MONGO_URI=mongodb://${MONGO_USER:-twin}:${MONGO_PASSWORD}@twin-mongodb:27017/twin_db?authSource=admin
+      - REDIS_HOST=twin-redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - KAFKA_BOOTSTRAP=twin-kafka:9093
       - |
         FLINK_PROPERTIES=
         jobmanager.rpc.address: flink-jobmanager

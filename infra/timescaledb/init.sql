@@ -38,6 +38,31 @@ COMMENT ON TABLE furnace_registry IS '爐子主登錄表，所有爐子資訊的
 COMMENT ON COLUMN furnace_registry.furnace_id IS '等同 CSV PULLER 欄位值，如 D1 / D3 / DB / F7 / FA';
 
 -- ─────────────────────────────────────────
+-- 1.5 爐子種子資料  ★ 少了這段，整套系統會「安靜地」不動 ★
+--
+--     FurnaceStreamJob 的 RegistryFilter 啟動時會從這張表載入爐子清單，
+--     然後 filter 掉所有不在清單裡的 Kafka 訊息：
+--
+--         return knownFurnaces.contains(r.getFurnaceId());
+--
+--     表是空的 → 清單是空集合 → 每一筆資料都被丟掉。
+--     TimescaleDB / Redis / MongoDB 全部零筆，前端顯示「0 爐」、3D 場景空白，
+--     但**沒有任何錯誤訊息**——Flink job 是 RUNNING 的，只是什麼都沒做。
+--
+--     部署到全新機器時踩過這個坑，非常難查。
+--
+--     ⚠ 新增爐子時，這裡加一筆 + datapipe 掛一個 simulator 就好，不用改程式碼。
+--        改完要重推 Flink job（RegistryFilter 只在 open() 時讀一次）。
+-- ─────────────────────────────────────────
+INSERT INTO furnace_registry (furnace_id, display_name, location, zone, status, description) VALUES
+    ('D1', '長晶爐 D1', 'Fab-A / 1F', 'Zone-A', 'idle', 'CZ 單晶矽長晶爐'),
+    ('D3', '長晶爐 D3', 'Fab-A / 1F', 'Zone-A', 'idle', 'CZ 單晶矽長晶爐'),
+    ('DB', '長晶爐 DB', 'Fab-A / 2F', 'Zone-B', 'idle', 'CZ 單晶矽長晶爐'),
+    ('F7', '長晶爐 F7', 'Fab-B / 1F', 'Zone-C', 'idle', 'CZ 單晶矽長晶爐'),
+    ('FA', '長晶爐 FA', 'Fab-B / 2F', 'Zone-C', 'idle', 'CZ 單晶矽長晶爐')
+ON CONFLICT (furnace_id) DO NOTHING;
+
+-- ─────────────────────────────────────────
 -- 2. 長晶爐主指標 Hypertable
 --    furnace_id 透過 FK 對應 furnace_registry
 -- ─────────────────────────────────────────
