@@ -34,14 +34,29 @@ buffer 和 heap，完全無視 `mem_limit`。結果就是它們以為有 16 GB �
 所以：`TS_TUNE_MEMORY=1900MB`、`--wiredTigerCacheSizeGB 0.4`、
 JVM 一律 `-XX:MaxRAMPercentage=70`。
 
-| | mem_limit 總和 |
-|---|---|
-| 預設啟動 | **14.5 GB** |
-| `--profile elk` | +3.5 GB |
-| `--profile extras` | +0.4 GB |
+| | mem_limit 總和 | **實測用量** |
+|---|---|---|
+| 預設啟動 | 15.4 GB | **4.6 GB** |
+| `--profile elk` | +3.5 GB | 約 +2～2.5 GB |
+| `--profile extras` | +0.4 GB | — |
 
-**部署完務必跑 `./scripts/mem-report.sh` 量真實用量**（見第 7 節）。
-數字說話——寬裕就把 ELK 開回來，吃緊就升級到 CX53（32 GB）。
+### 實測結果（2026-07-12，CX43 / 16 GB，五台爐子全速跑）
+
+```
+Mem:  15Gi total   5.7Gi used   9.6Gi available
+Swap: 4.0Gi        512Ki used          ← 幾乎沒動
+容器實際用量總計：4.64 GB（上限的 32%）
+OOM kill：0    異常重啟：0
+```
+
+**16 GB 綽綽有餘。** 這點值得說清楚，因為它推翻了一開始的判斷：
+最早我們是照「mem_limit 加總 26.8 GB」去推論 16 GB 不夠、準備升級到 32 GB 的機器。
+但 **`mem_limit` 是上限不是預留**——容器不會真的吃掉配額。
+實際只用 4.6 GB，連三分之一都不到。
+
+教訓：**先量再決定。** `docker stats` 花三十秒，比多付幾倍的機器錢划算。
+
+**部署完務必跑 `./scripts/mem-report.sh`**（見第 7 節）。判讀方式見該節的表。
 
 ---
 
@@ -364,14 +379,103 @@ docker exec twin-timescaledb pg_dump -U "$POSTGRES_USER" furnace_db | gzip > bac
 
 ---
 
+## 全新機器部署時「一定會踩」的坑（實戰紀錄）
+
+2026-07-12 首次部署到全新伺服器，一共踩到 **16 個問題**。全部都修了，
+但如果你之後換機器、或看到類似症狀，這張表能省下好幾小時。
+
+先講**共通模式**，因為它比任何單一 bug 都重要：
+
+> **「本機能跑」的狀態，有很大一部分是靠手動操作和 localhost 的巧合撐著的，
+> 從來沒寫進程式碼或設定檔。**
+
+具體有三種型態，每一種都在這次咬了我們好幾次：
+
+1. **靠手動 SQL 撐著的** —— `authdb`、`furnace_registry`、`oee_target`
+   都是某次在筆電上手動建的，從沒進過任何 `.sql`。新機器上一片空白。
+2. **靠 localhost 撐著的** —— CORS 白名單、WebSocket origins、OAuth redirect、
+   前端 API base URL。dev 剛好就是 localhost，所以永遠不會發現寫死了。
+3. **從來沒被執行過的程式碼** —— OAuth callback、註冊 action、簡訊驗證。
+   dev 沒設定 OAuth，那條路徑根本進不去；註冊在 UI 上從來沒成功過。
+   **部署不是「造成」這些 bug，而是第一次讓這些程式碼真的跑起來。**
+
+---
+
+### 起不來 / 無限重啟
+
+| 症狀 | 真正的原因 | 為什麼 dev 測不出來 |
+|---|---|---|
+| Caddy 無限重啟 | `auto_https on` 不是合法值（只接受 `off` / `disable_*`） | dev 沒有 Caddy |
+| auth-service 無限重啟 | **`authdb` 這個資料庫從沒被建立**（compose 只建 `furnace_db`） | 筆電上手動 `CREATE DATABASE` 過 |
+| auth-service 拒絕啟動 | JWT secret **base64 解碼後**只有 30 bytes，HS512 要 64。要用 `openssl rand -base64 64` | dev 的 secret 剛好夠長 |
+| auth-service 拒絕啟動 | OAuth `client-id` 是空字串 → `Client id must not be empty`。**任何一組空的都會擋** | dev 的 `.env` 有填值 |
+| Flink job 無限重啟 | Redis 密碼**只給了 TaskManager**（見下方說明） | dev 的 Redis 沒密碼 |
+
+### 起來了，但瀏覽器用不了（curl 測都正常 → 最難查的一類）
+
+| 症狀 | 真正的原因 |
+|---|---|
+| 登入失敗、但 curl 打 API 回 200 | `VITE_API_URL=http://YOUR_SERVER_IP/api` —— **範本佔位字串從沒被替換**。dev 讀 `.env.development` 所以永遠正常 |
+| 所有 POST 回 403 | Gateway 的 CORS 白名單只有 localhost。**依 Fetch 規範，非 GET/HEAD 的請求即使同源也會帶 `Origin`**，所以 GET 全過、POST 全掛；curl 不送 Origin，怎麼測都 200 |
+| WebSocket 403、前端永遠 OFFLINE | `WebSocketConfig` 的 allowed origins 也寫死 localhost。**`/ws` 由 nginx 直接代理到 furnace-service，不經過 gateway**，所以 gateway 的白名單管不到，得各自設定 |
+| 登入 API 一律 404 | 前端 nginx 沒有把 `/api/auth`、`/api/oauth2`、`/api/login` 的 `/api` 前綴剝掉。gateway 的路由是 `/auth/**`（無前綴），dev 靠 vite proxy rewrite，正式站沒人做 |
+
+### 起來了，但「安靜地」不動（沒有任何錯誤訊息）
+
+| 症狀 | 真正的原因 |
+|---|---|
+| **前端 0 爐、3D 空白、Flink job 顯示 RUNNING、零錯誤** | **`furnace_registry` 是空表** → `RegistryFilter` 的 `knownFurnaces.contains()` 永遠 false → 每一筆 Kafka 訊息都被丟掉。Job 確實在跑，只是什麼都沒做 |
+| OEE 頁面 500 | **`oee_target` 只存在於 JPA entity，從沒有任何 SQL 建過它**。alarm-service 是 `ddl-auto: none` 不會自動建表 |
+| SPC 沒有管制界線、八條規則全 0 | 這**不是 bug**。`MIN_SUBGROUPS = 30`——不滿 30 個一分鐘子群、或 CV > 10%（非穩態）就不建 baseline。用 10 分鐘的資料算出來的 σ 是騙人的 |
+
+### OAuth / 註冊 / 郵件（這些路徑在 dev 從來沒被執行過）
+
+| 症狀 | 真正的原因 |
+|---|---|
+| OAuth 授權成功、卻被導回 `localhost:5173` | 程式讀的是 `app.oauth.frontend-callback`，compose 注入的是 `OAUTH_FRONTEND_CALLBACK`——**兩者對不上**，yaml 裡沒有任何一段接這個變數。密碼重設信裡的連結也是 localhost（同一個 bug） |
+| OAuth 登入後每個 API 都 401 | `OAuthCallbackView` 用**物件**呼叫 `setSession(...)`，但它收的是**位置參數** → `Authorization: Bearer [object Object]`。帳密登入沒事，只有 OAuth 這條路徑會踩到 |
+| UI 註冊永遠「註冊失敗」 | **auth store 裡根本沒有 `register` action**，`RegisterView` 卻呼叫 `auth.register({...})` → `undefined is not a function` → 被 catch → 顯示成「註冊失敗」。後端其實是好的，curl 打得通 |
+| 註冊「發送驗證碼」失敗 | auth-service 沒拿到 `REDIS_PASSWORD` → `NOAUTH` → 驗證碼存不進 Redis |
+| 忘記密碼沒收到信 | `EMAIL_PROVIDER` 預設 `log`，只把連結印在 log。要真的寄信得設 `EMAIL_PROVIDER=smtp` + Gmail 應用程式密碼（`MAIL_FROM` **必須是自己的 Gmail**，Gmail SMTP 不讓你用別的網域當寄件人） |
+
+### 安全性（這三個最值得記住）
+
+| 問題 | 說明 |
+|---|---|
+| **明文密碼寫進 log** | `logging.level.org.springframework.web: DEBUG` 會把**每個 request body 原封不動印出來**，包含 `/auth/login` 的明文密碼。這些 log 會進 `docker logs`，開了 ELK 還會進 Elasticsearch |
+| **註冊完全不驗簡訊碼** | `SmsCodeService.verify()` 早就寫好了，但**沒有任何人呼叫它**；`REGISTER_SMS_REQUIRED=true` 也沒有任何地方讀取。任何人 POST `/auth/register` 帶一個亂填的驗證碼（或完全不帶）都能註冊成功。UI 上有 reCAPTCHA、有簡訊、有倒數計時，看起來一應俱全——**後端一行都沒驗**。這種「看起來有做」的洞比明顯的洞更危險 |
+| **報告生成漏權限判斷** | 導覽列的「報告生成」沒有 `v-if="hasPermission('REPORT_GEN')"`、路由也沒有 `meta.requiresPerm`，跟旁邊的 SPC / OEE 不一致 |
+
+---
+
+### 兩個特別值得記住的機制
+
+**① Flink 的 `main()` 執行在 JobManager，不是 TaskManager。**
+
+```java
+static final String RPASS = System.getenv()...          // 類別載入時求值
+stream.sinkTo(new RedisSink(RHOST, RPORT, RPASS));      // 在 main() 裡建構
+```
+
+`main()` 是在 JobManager 建 execution graph 時跑的。密碼在那裡讀出來、**序列化進 sink 物件**，才送去 TaskManager 執行。只有寫在 `open()` 裡的才是真的在 TaskManager 讀 env。
+
+`TimescaleDbSink` 用 `open()`、`RedisSink` 用建構子 —— 所以**資料進得了 Postgres 卻進不了 Redis**，症狀極度誤導。
+
+**② 同源也會觸發 CORS。**
+
+依 Fetch 規範，**非 GET/HEAD 的請求（POST/PUT/DELETE）即使同源，瀏覽器也會帶 `Origin` header**。Gateway 一看到 `Origin` 就套 CORS 規則。所以「前端和 API 同源，不該有 CORS 問題」這個直覺是**錯的**——GET 全過、POST 全 403，而 curl 不送 Origin，怎麼測都是 200。
+
+---
+
 ## 已知的取捨（誠實說明）
 
-1. **記憶體沒有太多餘裕**。上限總和 14.5 GB / 16 GB。這是能跑的，但前提是
-   第 0.5 節那三項設定都有生效。**部署完一定要跑 `mem-report.sh` 驗證**，
-   不要假設它一定沒事——`mem_limit` 只是上限，真正會不會爆要用量才知道。
+1. **記憶體很寬裕**。實測 4.6 GB / 16 GB，available 9.6 GB。
+   當初擔心 16 GB 不夠是誤判——那是拿 `mem_limit` 加總去推論，
+   但 `mem_limit` 是上限不是預留。**先量再決定。**
 
 2. **ELK 預設關閉**，所以**沒有集中式 log 查詢**。要看 log 就 `docker logs <容器>`。
-   兩台爐子的規模這樣夠用，但如果你想在履歷上展示 ELK，就得升到 32 GB。
+   記憶體其實開得起（+2～2.5 GB，還剩 7 GB），是刻意選擇不開，保持系統單純。
+   要開：`--profile elk up -d`，並把 `Caddyfile` 裡 kibana 那段取消註解。
 
 3. **Elasticsearch 的 `xpack.security` 是關的**（開啟 ELK 時）。因為它不對外，
    且 Kibana 前面有 basic auth，風險可控。但若之後有其他容器被入侵，ES 就是敞開的。
@@ -389,3 +493,21 @@ docker exec twin-timescaledb pg_dump -U "$POSTGRES_USER" furnace_db | gzip > bac
    再重新生成，否則兩邊會分歧（這正是舊版 prod 檔失效的原因）。
    ⚠ 但**這一輪的記憶體調校是直接改 prod 檔的**，重新生成會蓋掉——
    要重生成的話記得把 `gen-prod-compose.py` 一併更新。
+
+8. **註冊實質上是關閉的**。`SMS_PROVIDER=log`——驗證碼只印在
+   `docker logs auth-service`，外人拿不到，所以註冊不了。
+   而後端**現在會真的驗**驗證碼（先前完全不驗，見上方安全性那節），
+   所以這是一道有效的門。這是刻意的選擇：訪客用 GitHub / Google / Outlook
+   登入即可（一律 VIEWER），不需要註冊，也少一個對外的攻擊面。
+
+   要真的開放註冊：接 Twilio（付費帳號才能發給任意號碼，台灣約 $0.05–0.09/則），
+   或把 `REGISTER_SMS_REQUIRED` 設成 `false`——但 reCAPTCHA 的 secret 也沒設
+   （目前是「secret 未設定就略過驗證」），等於完全沒有防機器人。
+
+9. **OAuth 使用者一律 VIEWER**（`OAuth2ProvisioningService.DEFAULT_ROLE`）。
+   只看得到 3D 孿生和儀表板。SPC / OEE / 報告要 ENGINEER 以上。
+   **不要為了展示方便把預設角色改成 ADMIN**——這是公開站台，
+   那等於「任何人有 GitHub 帳號就是管理員」。要展示就用本地 `admin` 帳號登入。
+
+10. **AI 報告會消耗 OpenAI 額度**，帳單是自己的。這也是把 `REPORT_GEN`
+    留在 ENGINEER 以上、不給 VIEWER 的另一個理由。
