@@ -14,8 +14,9 @@
 
 {
 	email {$ACME_EMAIL}
-	# 憑證失敗時不要整個服務起不來
-	auto_https on
+	# 注意：不要寫 `auto_https on`——那不是合法值，會讓整個 Caddyfile 解析失敗。
+	# Auto HTTPS 本來就是預設開啟的，什麼都不用寫。
+	# 這個指令只接受 off / disable_redirects / disable_certs / ignore_loaded_certs。
 }
 
 # ── 主站：使用者介面 ─────────────────────────────────────────

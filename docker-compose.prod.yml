@@ -761,11 +761,15 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       REGISTER_SMS_REQUIRED: "true"
-      EMAIL_FROM: no-reply@twin.local
-      PWD_RESET_FRONTEND: http://localhost:5173/reset-password
-      OAUTH_REDIRECT_BASE: http://localhost:8085
-      OAUTH_FRONTEND_CALLBACK: http://localhost:5173/login/callback
-      OAUTH_FRONTEND_LOGIN: http://localhost:5173/login
+      EMAIL_FROM: no-reply@${DOMAIN}
+      PWD_RESET_FRONTEND: https://${DOMAIN}/reset-password
+      # ⚠ 帶 /api：正式站的公開入口是 Caddy → 前端 nginx，
+      #   nginx 會把 /api/login/** 剝掉前綴再送進 gateway 的 /login/**。
+      #   所以 OAuth 供應商那邊要登記的 callback 是
+      #     https://<網域>/api/login/oauth2/code/{github|google|azure}
+      OAUTH_REDIRECT_BASE: https://${DOMAIN}/api
+      OAUTH_FRONTEND_CALLBACK: https://${DOMAIN}/login/callback
+      OAUTH_FRONTEND_LOGIN: https://${DOMAIN}/login
       # OAuth
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}

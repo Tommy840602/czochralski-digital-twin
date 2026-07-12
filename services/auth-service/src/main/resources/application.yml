@@ -25,33 +25,6 @@ spring:
           auth: true
           starttls:
             enable: true
-  security:
-    oauth2:
-      client:
-        registration:
-          github:
-            client-id: ${GITHUB_CLIENT_ID:}
-            client-secret: ${GITHUB_CLIENT_SECRET:}
-            scope: read:user, user:email
-            redirect-uri: "http://localhost:8085/login/oauth2/code/github"
-          google:
-            client-id: ${GOOGLE_CLIENT_ID:}
-            client-secret: ${GOOGLE_CLIENT_SECRET:}
-            scope: openid, profile, email
-            redirect-uri: "http://localhost:8085/login/oauth2/code/google"
-          azure:
-            client-id: ${AZURE_CLIENT_ID:}
-            client-secret: ${AZURE_CLIENT_SECRET:}
-            scope: openid, profile, email
-            authorization-grant-type: authorization_code
-            redirect-uri: "http://localhost:8085/login/oauth2/code/azure"
-        provider:
-          azure:
-            authorization-uri: https://login.microsoftonline.com/${AZURE_TENANT_ID:common}/oauth2/v2.0/authorize
-            token-uri: https://login.microsoftonline.com/${AZURE_TENANT_ID:common}/oauth2/v2.0/token
-            user-info-uri: https://graph.microsoft.com/oidc/userinfo
-            user-name-attribute: sub
-            jwk-set-uri: https://login.microsoftonline.com/common/discovery/v2.0/keys
   jpa:
     hibernate:
       ddl-auto: update          # 開發用；上 prod 換 Flyway，ddl-auto 改 validate
@@ -99,3 +72,59 @@ logging:
   level:
     org.springframework.security: DEBUG
     org.springframework.web: DEBUG
+
+---
+# ════════════════════════════════════════════════════════════════════
+#  第三方登入（GitHub / Google / Azure）── 預設「不啟用」
+#
+#  為什麼要放在 profile 裡：
+#    Spring Boot 只要看到 client-id 是空字串就直接拒絕啟動
+#    （"Client id must not be empty"），auth-service 會無限重啟。
+#    把整段包進 profile，沒啟用時 Spring 根本看不到這些設定，
+#    也就不會建立 ClientRegistrationRepository —— SecurityConfig 偵測不到
+#    這個 bean，就只掛帳號密碼登入。
+#
+#  要啟用：
+#    1. 到各家建立 OAuth App，callback URL 填（注意中間的 /api）：
+#         https://<你的網域>/api/login/oauth2/code/github
+#         https://<你的網域>/api/login/oauth2/code/google
+#         https://<你的網域>/api/login/oauth2/code/azure
+#       （/api 會被前端 nginx 剝掉再送進 gateway 的 /login/**）
+#    2. .env.prod 填好 GITHUB_CLIENT_ID / SECRET…等
+#    3. compose 的 SPRING_PROFILES_ACTIVE 加上 oauth，例如 "docker,oauth"
+#    4. 前端 LoginView.vue 的第三方登入按鈕改回顯示
+#
+#  ⚠ 啟用時「這一段列出的每一組」client-id 都必須有值。
+#     只想用 GitHub 的話，請把 google / azure 兩段刪掉。
+# ════════════════════════════════════════════════════════════════════
+spring:
+  config:
+    activate:
+      on-profile: oauth
+  security:
+    oauth2:
+      client:
+        registration:
+          github:
+            client-id: ${GITHUB_CLIENT_ID}
+            client-secret: ${GITHUB_CLIENT_SECRET}
+            scope: read:user, user:email
+            redirect-uri: "${OAUTH_REDIRECT_BASE:http://localhost:8085}/login/oauth2/code/github"
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            scope: openid, profile, email
+            redirect-uri: "${OAUTH_REDIRECT_BASE:http://localhost:8085}/login/oauth2/code/google"
+          azure:
+            client-id: ${AZURE_CLIENT_ID}
+            client-secret: ${AZURE_CLIENT_SECRET}
+            scope: openid, profile, email
+            authorization-grant-type: authorization_code
+            redirect-uri: "${OAUTH_REDIRECT_BASE:http://localhost:8085}/login/oauth2/code/azure"
+        provider:
+          azure:
+            authorization-uri: https://login.microsoftonline.com/${AZURE_TENANT_ID:common}/oauth2/v2.0/authorize
+            token-uri: https://login.microsoftonline.com/${AZURE_TENANT_ID:common}/oauth2/v2.0/token
+            user-info-uri: https://graph.microsoft.com/oidc/userinfo
+            user-name-attribute: sub
+            jwk-set-uri: https://login.microsoftonline.com/common/discovery/v2.0/keys

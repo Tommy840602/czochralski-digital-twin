@@ -3,6 +3,19 @@
 --  支援任意數量爐子，透過 furnace_registry 動態管理
 -- ============================================================
 
+-- ─────────────────────────────────────────
+-- 0. auth-service 的資料庫
+--
+--    compose 只透過 POSTGRES_DB 建了 furnace_db，authdb 沒人建。
+--    auth-service 連 jdbc:.../authdb，資料庫不存在就會無限重啟——
+--    部署到全新機器時踩過這個坑，這裡補上。
+--
+--    Postgres 的 CREATE DATABASE 沒有 IF NOT EXISTS，用 \gexec 做冪等。
+--    （\gexec 是 psql 的 meta-command，docker-entrypoint 就是用 psql 跑這支檔案）
+-- ─────────────────────────────────────────
+SELECT 'CREATE DATABASE authdb OWNER ' || quote_ident(current_user)
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'authdb')\gexec
+
 CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;
 
 -- ─────────────────────────────────────────

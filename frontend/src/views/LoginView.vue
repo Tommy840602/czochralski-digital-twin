@@ -27,13 +27,20 @@
         <RouterLink to="/register">註冊新帳號</RouterLink>
       </div>
 
-      <div class="divider"><span>或使用第三方登入</span></div>
+      <!--
+        第三方登入預設關閉（後端 auth-service 的 `oauth` profile 沒啟用時，
+        Spring 不會建立 ClientRegistrationRepository，/oauth2/authorization/* 會 404）。
+        要開啟：後端啟用 oauth profile + 填好 client id/secret，再把 v-if 拿掉。
+      -->
+      <template v-if="OAUTH_ENABLED">
+        <div class="divider"><span>或使用第三方登入</span></div>
 
-      <div class="oauth-row">
-        <button class="btn-oauth" @click="oauth('github')">GitHub</button>
-        <button class="btn-oauth" @click="oauth('google')">Google</button>
-        <button class="btn-oauth" @click="oauth('azure')">Outlook</button>
-      </div>
+        <div class="oauth-row">
+          <button class="btn-oauth" @click="oauth('github')">GitHub</button>
+          <button class="btn-oauth" @click="oauth('google')">Google</button>
+          <button class="btn-oauth" @click="oauth('azure')">Outlook</button>
+        </div>
+      </template>
       <br>
       <h6>#聲明</h6>
       <h6>
@@ -83,9 +90,14 @@ async function onSubmit() {
   }
 }
 
-// 第三方登入：第 ⑤ 階段接後端 OAuth2。屆時導向 gateway 的 /oauth2/authorization/{provider}
+// 第三方登入開關。後端 auth-service 要啟用 `oauth` profile 並填好 client id/secret，
+// 這裡才有東西可以接；否則 /oauth2/authorization/* 會 404。
+// 之後要開啟：把 .env 的 VITE_OAUTH_ENABLED 設成 true（或直接改成 true）。
+const OAUTH_ENABLED = import.meta.env.VITE_OAUTH_ENABLED === 'true'
+
+// 導向 gateway 的 /oauth2/authorization/{provider}
+// （正式站：Caddy → nginx 剝掉 /api → gateway → auth-service）
 function oauth(provider) {
-  // 走 vite proxy /api → gateway → auth-service
   window.location.href = `/api/oauth2/authorization/${provider}`
 }
 </script>
