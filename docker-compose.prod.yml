@@ -144,7 +144,9 @@ services:
   kafka:
     image: confluentinc/cp-kafka:7.6.0
     container_name: twin-kafka
-    mem_limit: 1024m
+    # 實測用量 873 MiB（85% of 1g）——太貼近上限，尖峰會被 OOM kill。
+    # heap 只有 640m，其餘是 off-heap 與 page cache（Kafka 重度依賴後者）。
+    mem_limit: 1536m
     <<: [*restart-policy, *default-logging]
     depends_on:
       zookeeper:
@@ -365,6 +367,8 @@ services:
   timescaledb:
     image: timescale/timescaledb:latest-pg16
     container_name: twin-timescaledb
+    # 實測只用 116 MiB（資料量還小）。上限留寬是刻意的——
+    # 資料長大後 shared_buffers 和 page cache 都會吃，這裡不是浪費。
     mem_limit: 2560m
     <<: [*restart-policy, *default-logging]
     # ports: 不對外發布（只有 caddy 綁 80/443）
@@ -779,6 +783,11 @@ services:
       - redis
     environment:
       JAVA_TOOL_OPTIONS: *jvm-opts
+      # `oauth` profile 才會載入 spring.security.oauth2.client 那段設定。
+      # ⚠ 啟用後，GITHUB / GOOGLE / AZURE 的 client-id 與 secret「全部」都要有值，
+      #   任何一組是空字串 → Spring 拒絕啟動（Client id must not be empty）。
+      #   不想接第三方登入就把這行拿掉，SecurityConfig 會自動只掛帳密登入。
+      SPRING_PROFILES_ACTIVE: oauth
       DB_HOST: timescaledb
       DB_PORT: "5432"
       DB_NAME: authdb
@@ -870,7 +879,8 @@ services:
   simulator-d1:
     build: ./datapipe
     container_name: twin-simulator-d1
-    mem_limit: 128m
+    # 實測 FA 用到 112 MiB（87% of 128m）——CSV 最大的那台，放寬避免被殺
+    mem_limit: 192m
     <<: [*restart-policy, *default-logging]
     depends_on:
       mosquitto:
@@ -882,7 +892,8 @@ services:
   simulator-d3:
     build: ./datapipe
     container_name: twin-simulator-d3
-    mem_limit: 128m
+    # 實測 FA 用到 112 MiB（87% of 128m）——CSV 最大的那台，放寬避免被殺
+    mem_limit: 192m
     <<: [*restart-policy, *default-logging]
     depends_on:
       mosquitto:
@@ -894,7 +905,8 @@ services:
   simulator-db:
     build: ./datapipe
     container_name: twin-simulator-db
-    mem_limit: 128m
+    # 實測 FA 用到 112 MiB（87% of 128m）——CSV 最大的那台，放寬避免被殺
+    mem_limit: 192m
     <<: [*restart-policy, *default-logging]
     depends_on:
       mosquitto:
@@ -906,7 +918,8 @@ services:
   simulator-f7:
     build: ./datapipe
     container_name: twin-simulator-f7
-    mem_limit: 128m
+    # 實測 FA 用到 112 MiB（87% of 128m）——CSV 最大的那台，放寬避免被殺
+    mem_limit: 192m
     <<: [*restart-policy, *default-logging]
     depends_on:
       mosquitto:
@@ -918,7 +931,8 @@ services:
   simulator-fa:
     build: ./datapipe
     container_name: twin-simulator-fa
-    mem_limit: 128m
+    # 實測 FA 用到 112 MiB（87% of 128m）——CSV 最大的那台，放寬避免被殺
+    mem_limit: 192m
     <<: [*restart-policy, *default-logging]
     depends_on:
       mosquitto:
