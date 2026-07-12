@@ -55,10 +55,19 @@ spring:
       globalcors:
         cors-configurations:
           '[/**]':
-            allowedOrigins:
-              - "http://localhost:5173"
-              - "http://localhost:3001"
-              - "http://localhost"
+            # ⚠ 正式環境一定要把自己的網域加進來，否則瀏覽器一律 403。
+            #
+            #   容易誤會的點：前端和 API 明明同源，為什麼還會觸發 CORS？
+            #   因為依 Fetch 規範，「非 GET/HEAD 的請求（POST/PUT/DELETE）
+            #   即使同源，瀏覽器也會帶 Origin header」。Gateway 只要看到 Origin
+            #   就會套 CORS 規則，不在白名單就回 403。
+            #
+            #   結果就是：GET /api/furnaces 正常，但 POST /api/auth/login 被擋，
+            #   連 SockJS 的 xhr_send（也是 POST）都 403 → WebSocket 也連不上。
+            #   而 curl 不送 Origin，所以怎麼測都是 200，問題只在瀏覽器出現。
+            #
+            #   逗號分隔，Spring 會自動綁成 List。
+            allowedOriginPatterns: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3001,http://localhost}
             allowedMethods:
               - GET
               - POST
