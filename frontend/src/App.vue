@@ -31,7 +31,14 @@
           <RouterLink to="/dashboard" class="nav-link" active-class="nav-link--active">
             <span class="nav-icon">◈</span> 儀表板
           </RouterLink>
-          <RouterLink to="/reports" class="nav-link" active-class="nav-link--active">
+          <!-- 報告生成漏了權限判斷，跟旁邊的 SPC / OEE 不一致：
+               VIEWER 看得到連結、點進去卻是 Forbidden。補上 REPORT_GEN。 -->
+          <RouterLink
+            v-if="auth.hasPermission('REPORT_GEN')"
+            to="/reports"
+            class="nav-link"
+            active-class="nav-link--active"
+          >
             <span class="nav-icon">▤</span> 報告生成
           </RouterLink>
           <RouterLink

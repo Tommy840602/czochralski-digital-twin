@@ -45,7 +45,10 @@ const routes = [
   {
     path: '/reports',
     name: 'reports',
-    component: () => import('@/views/ReportView.vue')
+    component: () => import('@/views/ReportView.vue'),
+    // 漏了這行：/spc 和 /oee 都有 requiresPerm，只有 /reports 沒有——
+    // 導覽列藏起來也沒用，直接打網址一樣進得去（後端會擋，但畫面很難看）。
+    meta: { requiresPerm: 'REPORT_GEN' }
   },
   {
     path: '/spc',
