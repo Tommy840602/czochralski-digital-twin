@@ -46,6 +46,23 @@ eureka:
     fetch-registry: ${EUREKA_ENABLED:true}
 
 app:
+  # ⚠ 這三個「面向使用者的網址」原本沒有任何地方接環境變數。
+  #
+  #   程式碼是 @Value("${app.oauth.frontend-callback:http://localhost:5173/login/callback}")，
+  #   compose 注入的卻是 OAUTH_FRONTEND_CALLBACK ——兩者對不上。
+  #   Spring 的 relaxed binding 只認 APP_OAUTH_FRONTEND_CALLBACK，
+  #   所以那些環境變數根本沒被讀到，一律落回 localhost:5173 的預設值。
+  #
+  #   症狀：OAuth 授權明明成功，最後卻被導回 http://localhost:5173/login/callback。
+  #   密碼重設信裡的連結也是 localhost（同一個 bug，只是還沒人點到）。
+  #
+  #   這裡明確把環境變數接上，dev 不填就沿用 localhost 預設，行為不變。
+  oauth:
+    frontend-callback: ${OAUTH_FRONTEND_CALLBACK:http://localhost:5173/login/callback}
+    frontend-login: ${OAUTH_FRONTEND_LOGIN:http://localhost:5173/login}
+  password-reset:
+    frontend-base: ${PWD_RESET_FRONTEND:http://localhost:5173/reset-password}
+
   jwt:
     # 上 prod 從 Config server / 環境變數注入，且務必 >= 32 字元
     secret: ${JWT_SECRET}
