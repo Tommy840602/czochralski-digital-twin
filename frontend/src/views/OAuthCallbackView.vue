@@ -23,12 +23,19 @@ onMounted(() => {
     return
   }
 
-  auth.setSession({
-    accessToken: String(accessToken),
-    refreshToken: String(refreshToken || ''),
-    username: String(username || ''),
-    roles: roles ? String(roles).split(',').filter(Boolean) : [],
-  })
+  // ⚠ setSession 收的是「位置參數」不是物件：
+  //       setSession(accessToken, refreshToken, username, roles, perms)
+  //   原本這裡傳了一個物件進去，整包被當成第一個參數 accessToken，
+  //   結果 Authorization header 變成 "Bearer [object Object]"，
+  //   每一個 API 呼叫都 401。
+  //   帳密登入沒事（auth.js 是用位置參數呼叫的），只有 OAuth 這條路徑會踩到。
+  //   perms 不用傳，setSession 會自己從 JWT 的 claims 解出來。
+  auth.setSession(
+    String(accessToken),
+    String(refreshToken || ''),
+    String(username || ''),
+    roles ? String(roles).split(',').filter(Boolean) : [],
+  )
 
   // 清掉網址列的 token，避免被書籤/歷史記錄留存
   router.replace('/')
