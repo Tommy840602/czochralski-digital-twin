@@ -8,6 +8,9 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      # 正式環境的 Redis 開了 requirepass；本機開發沒有，留空即可。
+      # 少了這行 → NOAUTH → 簡訊驗證碼存不進 Redis → 註冊流程直接掛掉。
+      password: ${REDIS_PASSWORD:}
   datasource:
     # 預設指向本機 TimescaleDB（host port 5433）方便 IntelliJ 直跑；
     # docker-compose 會用環境變數覆寫成 service 名稱與 5432。
