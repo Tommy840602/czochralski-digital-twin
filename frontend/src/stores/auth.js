@@ -144,6 +144,35 @@ export const useAuthStore = defineStore('auth', {
       return data
     },
 
+    /**
+     * 註冊。
+     *
+     * ⚠ 這個 action 原本「不存在」。RegisterView.vue 直接呼叫 auth.register({...})，
+     *   得到 undefined is not a function，被 catch 起來後顯示成「註冊失敗」——
+     *   所以透過 UI 註冊從來沒有成功過，而且錯誤訊息完全誤導。
+     *
+     *   後端 /auth/register 本身是好的（用 curl 打會成功），問題純粹在前端少了這一段。
+     */
+    async register({ username, email, password, phone, smsCode }) {
+      const { data } = await api.post('/auth/register', {
+        username,
+        email,
+        password,
+        phone,
+        smsCode
+      })
+
+      this.setSession(
+        data.accessToken,
+        data.refreshToken,
+        data.username,
+        data.roles,
+        data.perms
+      )
+
+      return data
+    },
+
     async refresh() {
       const { data } = await api.post('/auth/refresh', {
         refreshToken: this.refreshToken

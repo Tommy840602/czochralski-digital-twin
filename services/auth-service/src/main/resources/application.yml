@@ -49,6 +49,11 @@ eureka:
     fetch-registry: ${EUREKA_ENABLED:true}
 
 app:
+  register:
+    # compose 一直有傳 REGISTER_SMS_REQUIRED=true，但沒有任何地方讀它 →
+    # 註冊完全不驗簡訊碼。這裡把它接上。
+    sms-required: ${REGISTER_SMS_REQUIRED:false}
+
   # ⚠ 這三個「面向使用者的網址」原本沒有任何地方接環境變數。
   #
   #   程式碼是 @Value("${app.oauth.frontend-callback:http://localhost:5173/login/callback}")，
