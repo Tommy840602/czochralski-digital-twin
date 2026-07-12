@@ -670,6 +670,9 @@ services:
       - EUREKA_INSTANCE_HOSTNAME=twin-furnace-service
       - EUREKA_INSTANCE_PREFER_IP_ADDRESS=false
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # /ws 由前端 nginx 直接代理到這裡（不經過 gateway），CORS 要自己設。
+      # 沒設的話只允許 localhost，正式站的 SockJS 握手會 403 → 前端永遠 OFFLINE。
+      - APP_WS_ALLOWED_ORIGINS=https://${DOMAIN},https://www.${DOMAIN}
     depends_on:
       eureka-server:
         condition: service_healthy
