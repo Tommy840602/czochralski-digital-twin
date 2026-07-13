@@ -232,16 +232,23 @@ jobs:
               exit 1
             fi
 
-            # 沒有重複寫入？（同一時間點同一台爐子只能有一筆）
+            # 沒有重複寫入？（同一時間點、同一台爐子只能有一筆）
+            #
+            # ⚠ 窗口只能涵蓋「新 job 啟動之後」的資料。
+            #   如果窗口開太大（例如 5 分鐘），會撈到「這次部署之前」那些
+            #   重複 job 寫下的舊資料，變成誤判——新 job 明明是好的卻報錯。
+            #   上面已經 sleep 30，這裡再等 60 秒，然後只看最近 45 秒。
+            echo "  等新 job 累積乾淨的資料…"
+            sleep 60
             DUP=$(docker exec -i twin-timescaledb psql -U "$PG_USER" -d furnace_db -tAc \
               "SELECT count(*) FROM (
                  SELECT furnace_id, time FROM furnace_metrics
-                 WHERE time > NOW() - INTERVAL '5 minutes'
+                 WHERE time > NOW() - INTERVAL '45 seconds'
                  GROUP BY furnace_id, time HAVING count(*) > 1
                ) d;")
-            echo "近 5 分鐘重複的時間點：$DUP"
+            echo "近 45 秒重複的時間點：$DUP"
             if [ "$DUP" -gt 0 ]; then
-              echo "::error::偵測到重複寫入 —— 很可能有多個 Flink job 同時在跑"
+              echo "::error::新 job 正在重複寫入 —— 檢查是不是有多個 Flink job"
               exit 1
             fi
 
