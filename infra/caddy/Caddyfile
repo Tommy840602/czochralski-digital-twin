@@ -55,11 +55,15 @@ grafana.{$DOMAIN} {
 	reverse_proxy grafana:3000
 }
 
-kibana.{$DOMAIN} {
-	import admin_auth
-	encode zstd gzip
-	reverse_proxy kibana:5601
-}
+# Kibana 預設關閉（ELK 在 --profile elk 裡）。
+# 留著這段的話 Caddy 會照常簽憑證，但後面沒有服務 → 一律 502。
+# 要啟用 ELK 時：把下面四行取消註解 + `--profile elk up -d`。
+#
+# kibana.{$DOMAIN} {
+# 	import admin_auth
+# 	encode zstd gzip
+# 	reverse_proxy kibana:5601
+# }
 
 kafka.{$DOMAIN} {
 	import admin_auth

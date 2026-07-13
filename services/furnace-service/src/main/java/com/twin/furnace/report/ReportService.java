@@ -40,8 +40,11 @@ public class ReportService {
     }
 
     public ReportDto generate(String furnaceId) {
+        // 訊息要跟實際讀的變數一致：這裡呼叫的是 OpenAI（api.openai.com / gpt-4o），
+        // 綁的是 openai.api-key ← OPENAI_API_KEY。原本寫 ANTHROPIC_API_KEY 是錯的，
+        // 會害人去設一個根本沒被讀取的環境變數。
         if (apiKey == null || apiKey.isBlank())
-            throw new IllegalStateException("未設定 ANTHROPIC_API_KEY，無法生成報告");
+            throw new IllegalStateException("未設定 OPENAI_API_KEY，無法生成報告");
 
         FurnaceLatestDto live = furnaceService.getLatest(furnaceId)
                 .orElseThrow(() -> new IllegalArgumentException("查無爐子即時資料：" + furnaceId));

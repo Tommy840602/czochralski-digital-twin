@@ -1,3 +1,36 @@
+﻿# ============================================================
+#  CI/CD — 長晶爐數位孿生
+#
+#  設計原則：pipeline 必須反映「實際會動的部署流程」，而不是理想中的流程。
+#
+#  舊版的問題（全部會讓部署失敗，只是從沒真的跑過所以沒人發現）：
+#    1. working-directory: flink-jobs   → 路徑是 services/flink-jobs
+#    2. 推 9 個 image 到 Docker Hub     → docker-compose.prod.yml 全部用 build:
+#                                          從原始碼建，根本不會 pull 這些 image
+#    3. docker compose pull             → 拉本地建的 image 名稱，拉不到
+#    4. up -d 沒帶 --env-file .env.prod → compose 裡每個 ${VAR:?} 都會炸
+#    5. 沒有 --build                    → 就算起來也是舊 image
+#    6. 伺服器上沒跑 mvn package        → Dockerfile 只 COPY target/*.jar，打包舊 jar
+#    7. 少了 auth-service
+#    8. Flink job 沒重推                → jobmanager 一重建，job 就消失
+#
+#  現在的流程：
+#    build   —— 驗證 Java + 前端能編譯（PR 和 main 都跑，當守門員）
+#    deploy  —— 只在 main：SSH 進伺服器，git pull → mvn package →
+#               compose up --build → 等 healthy → 確認 Flink job 在跑
+#
+#  為什麼不用 Docker Registry？
+#    docker-compose.prod.yml 目前是 build-from-source。要改成 pull image
+#    得把每個服務的 build: 換成 image:，是另一個工程。
+#    在伺服器上 build（8 vCPU，約 2 分鐘）完全可接受，而且**這是已驗證會動的路徑**。
+#    等之後真的需要 rollback / 多台機器時再導入 registry。
+#
+#  需要的 GitHub Secrets：
+#    SERVER_HOST     178.104.225.148
+#    SERVER_USER     tommy
+#    SERVER_SSH_KEY  私鑰全文（-----BEGIN ... END-----，含頭尾）
+# ============================================================
+
 name: CI/CD Pipeline
 
 on:
@@ -5,10 +38,24 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:        # 允許手動觸發（改完設定想重新部署時很有用）
+
+# 同一時間只跑一個部署，避免兩個 workflow 同時在伺服器上 build 打架
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  # ── Job 1: Build Spring Boot JAR ──
-  build-services:
+
+  # ────────────────────────────────────────────────────────────
+  #  Job 1：編譯驗證
+  #
+  #  ⚠ 目前專案「沒有任何測試」（services/*/src/test 是空的），
+  #    所以這一關只能保證「編得過」，不保證「行為正確」。
+  #    這次部署踩到的 16 個 bug，沒有一個是編譯期抓得到的。
+  #    要真的有防護網，得補整合測試——那是另一件事。
+  # ────────────────────────────────────────────────────────────
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,147 +65,146 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
+          cache: maven
 
-      - name: Cache Maven
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-
-      - name: Build Spring Boot Services
+      - name: Build Spring Boot services
         working-directory: services
-        run: mvn clean package -DskipTests
+        run: mvn -B clean package -DskipTests
 
-      - name: Build Flink Job
-        working-directory: flink-jobs
-        run: mvn clean package -DskipTests
+      # ⚠ 路徑是 services/flink-jobs，不是 flink-jobs
+      - name: Build Flink fat JAR
+        working-directory: services/flink-jobs
+        run: mvn -B clean package -DskipTests
 
-      - name: Upload JARs
-        uses: actions/upload-artifact@v4
+      - name: 確認 Flink 打的是 fat JAR（shade 有生效）
+        run: |
+          JAR=$(ls services/flink-jobs/target/flink-jobs-*.jar | grep -v original)
+          SIZE=$(stat -c%s "$JAR")
+          echo "Flink JAR: $JAR ($((SIZE / 1024 / 1024)) MB)"
+          # shade 之後約 30MB；沒 shade 只有幾十 KB，丟到 Flink 上會 ClassNotFound
+          if [ "$SIZE" -lt 10000000 ]; then
+            echo "::error::Flink JAR 只有 $((SIZE / 1024)) KB —— maven-shade-plugin 沒生效"
+            exit 1
+          fi
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
         with:
-          name: spring-jars
-          path: services/*/target/*.jar
-          retention-days: 1
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
-      - name: Upload Flink JAR
-        uses: actions/upload-artifact@v4
-        with:
-          name: flink-jar
-          path: flink-jobs/target/flink-jobs-*.jar
-          retention-days: 1
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
 
-  # ── Job 2: Build & Push Docker Images ──
-  build-docker:
-    needs: build-services
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - uses: actions/checkout@v4
+      # 這次部署最難查的 bug 之一：.env.production 裡的 VITE_API_URL 是
+      # 範本佔位字串 http://YOUR_SERVER_IP/api，從沒被替換過。
+      # bundle 裡帶著它，瀏覽器所有 API 呼叫都失敗，但 curl 測起來完全正常。
+      # 讓 CI 直接擋掉，不要再讓它上線。
+      - name: 檢查前端 bundle 沒有佔位字串 / localhost
+        working-directory: frontend
+        run: |
+          if grep -rqE "YOUR_SERVER_IP|localhost:(5173|8085)" dist/; then
+            echo "::error::前端 bundle 裡有佔位字串或 localhost —— 檢查 .env.production"
+            grep -rohE "YOUR_SERVER_IP|localhost:(5173|8085)" dist/ | sort -u
+            exit 1
+          fi
+          echo "✓ bundle 乾淨"
 
-      - name: Download JARs
-        uses: actions/download-artifact@v4
-        with:
-          name: spring-jars
-          path: services
-
-      - name: Download Flink JAR
-        uses: actions/download-artifact@v4
-        with:
-          name: flink-jar
-          path: flink-jobs/target
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build & Push eureka-server
-        uses: docker/build-push-action@v5
-        with:
-          context: services/eureka-server
-          push: true
-          tags: tommy840602/czochralski-eureka:latest
-
-      - name: Build & Push config-server
-        uses: docker/build-push-action@v5
-        with:
-          context: services/config-server
-          push: true
-          tags: tommy840602/czochralski-config:latest
-
-      - name: Build & Push api-gateway
-        uses: docker/build-push-action@v5
-        with:
-          context: services/api-gateway
-          push: true
-          tags: tommy840602/czochralski-api-gateway:latest
-
-      - name: Build & Push iot-gateway
-        uses: docker/build-push-action@v5
-        with:
-          context: services/iot-gateway
-          push: true
-          tags: tommy840602/czochralski-iot-gateway:latest
-
-      - name: Build & Push furnace-service
-        uses: docker/build-push-action@v5
-        with:
-          context: services/furnace-service
-          push: true
-          tags: tommy840602/czochralski-furnace:latest
-
-      - name: Build & Push alarm-service
-        uses: docker/build-push-action@v5
-        with:
-          context: services/alarm-service
-          push: true
-          tags: tommy840602/czochralski-alarm:latest
-
-      - name: Build & Push frontend
-        uses: docker/build-push-action@v5
-        with:
-          context: frontend
-          push: true
-          tags: tommy840602/czochralski-frontend:latest
-          build-args: |
-            NODE_VERSION=20
-
-      - name: Build & Push flink-jobs
-        uses: docker/build-push-action@v5
-        with:
-          context: flink-jobs
-          push: true
-          tags: tommy840602/czochralski-flink-jobs:latest
-
-      - name: Build & Push simulator (datapipe)
-        uses: docker/build-push-action@v5
-        with:
-          context: datapipe
-          push: true
-          tags: tommy840602/czochralski-simulator:latest
-
-  # ── Job 3: Deploy to Server ──
+  # ────────────────────────────────────────────────────────────
+  #  Job 2：部署
+  # ────────────────────────────────────────────────────────────
   deploy:
-    needs: build-docker
+    needs: build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    environment: production
     steps:
-      - uses: actions/checkout@v4
-
       - name: Deploy to Hetzner
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
+          command_timeout: 30m        # mvn + docker build 要好幾分鐘，預設 10m 不夠
+          script_stop: true           # 任何一行失敗就中止，不要繼續往下跑
           script: |
+            set -euo pipefail
             cd ~/czochralski-digital-twin
-            git pull origin main
-            docker compose -f docker-compose.prod.yml pull
-            docker compose -f docker-compose.prod.yml up -d
+
+            COMPOSE="docker compose --env-file .env.prod -f docker-compose.prod.yml"
+
+            echo "──────── 1. 取得程式碼 ────────"
+            git fetch origin main
+            git reset --hard origin/main    # 丟棄伺服器上的本地修改，以 repo 為準
+
+            echo "──────── 2. 編譯（Dockerfile 只 COPY jar，不在 image 內編譯）────────"
+            # ⚠ 這一步不能省。只跑 docker compose build 會把「舊 jar」打包進去，
+            #    程式不會更新——這個坑踩過很多次。
+            (cd services && mvn -B -q clean package -DskipTests)
+            (cd services/flink-jobs && mvn -B -q clean package -DskipTests)
+
+            echo "──────── 3. 重建並啟動 ────────"
+            $COMPOSE up -d --build --remove-orphans
+
+            echo "──────── 4. 等服務 healthy ────────"
+            for i in $(seq 1 40); do
+              UNHEALTHY=$(docker ps --filter health=unhealthy --format '{{.Names}}' | tr '\n' ' ')
+              STARTING=$(docker ps --filter health=starting --format '{{.Names}}' | tr '\n' ' ')
+              if [ -z "$UNHEALTHY" ] && [ -z "$STARTING" ]; then
+                echo "✓ 全部 healthy"
+                break
+              fi
+              echo "  等待中… unhealthy=[$UNHEALTHY] starting=[$STARTING]"
+              sleep 15
+              if [ "$i" -eq 40 ]; then
+                echo "::error::10 分鐘後仍有服務不 healthy"
+                $COMPOSE ps
+                exit 1
+              fi
+            done
+
+            echo "──────── 5. Flink job ────────"
+            # Flink 關了 checkpoint、submitter 是一次性容器，
+            # jobmanager 一重建 job 就消失。每次部署都要確認並重推。
+            sleep 10
+            RUNNING=$(docker exec twin-flink-jobmanager \
+                        curl -s localhost:8081/jobs | grep -o '"RUNNING"' | wc -l)
+            if [ "$RUNNING" -eq 0 ]; then
+              echo "沒有 RUNNING 的 job，重推…"
+              $COMPOSE up -d --force-recreate --no-deps flink-job-submitter
+              sleep 30
+            fi
+            docker exec twin-flink-jobmanager curl -s localhost:8081/jobs
+            echo
+
+            echo "──────── 6. 冒煙測試 ────────"
+            # 主站活著？（Caddy → nginx → SPA）
+            curl -fsS -o /dev/null -w "主站: HTTP %{http_code}\n" https://tommy-huang.dev/
+
+            # 資料真的在流？（比對最新一筆的時間，不能超過 2 分鐘）
+            source .env.prod
+            LAG=$(docker exec -i twin-timescaledb psql -U "$POSTGRES_USER" -d furnace_db -tAc \
+              "SELECT COALESCE(EXTRACT(EPOCH FROM (NOW() - MAX(time)))::int, 99999) FROM furnace_metrics;")
+            echo "最新資料距今 ${LAG} 秒"
+            if [ "$LAG" -gt 120 ]; then
+              echo "::error::資料停了（${LAG} 秒沒有新資料）—— 檢查 Flink job 與 simulator"
+              exit 1
+            fi
+
+            echo "──────── 7. 清理 ────────"
             docker image prune -f
-            echo "部署完成！"
+
+            echo "✅ 部署完成"
+
+      - name: 部署失敗時的提示
+        if: failure()
+        run: |
+          echo "::error::部署失敗。常見原因："
+          echo "  · .env.prod 少了必填變數（compose 用 \${VAR:?}，沒填就啟動失敗）"
+          echo "  · 伺服器上有未提交的本地修改（step 1 的 git reset 會丟棄它們）"
+          echo "  · 磁碟滿了 → 上 server 跑 docker system prune -a"
+          echo "  · 手動排查：ssh 進去跑 docker compose --env-file .env.prod -f docker-compose.prod.yml ps"
