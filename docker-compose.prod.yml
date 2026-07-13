@@ -79,7 +79,15 @@ services:
       - "443:443"
       - "443:443/udp"
     environment:
+      # DOMAIN   = 根網域（子網域掛在它下面）：tommy-huang.dev
+      # APP_HOST = 主站網址：twin.tommy-huang.dev
+      #
+      # ⚠ 這兩個是不同的東西。APP_HOST 一改，下面所有服務的 CORS / WebSocket
+      #   origins / OAuth callback / 密碼重設連結都要跟著改——它們全都從
+      #   APP_HOST 推導，所以改一個地方就好。
+      #   但**三家 OAuth App 後台的 callback URL 要另外手動改**，那在外部系統。
       DOMAIN: ${DOMAIN:?未設定}
+      APP_HOST: ${APP_HOST:?未設定}
       ACME_EMAIL: ${ACME_EMAIL:?未設定}
       ADMIN_USER: ${ADMIN_USER:-admin}
       ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:?未設定}
@@ -699,7 +707,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       # /ws 由前端 nginx 直接代理到這裡（不經過 gateway），CORS 要自己設。
       # 沒設的話只允許 localhost，正式站的 SockJS 握手會 403 → 前端永遠 OFFLINE。
-      - APP_WS_ALLOWED_ORIGINS=https://${DOMAIN},https://www.${DOMAIN}
+      - APP_WS_ALLOWED_ORIGINS=https://${APP_HOST}
     depends_on:
       eureka-server:
         condition: service_healthy
@@ -759,7 +767,7 @@ services:
       - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://twin-eureka:8761/eureka/
       - JWT_SECRET=${JWT_SECRET}
       # 沒設的話 gateway 只允許 localhost，瀏覽器送 Origin: https://<網域> 會被 403
-      - CORS_ALLOWED_ORIGINS=https://${DOMAIN},https://www.${DOMAIN}
+      - CORS_ALLOWED_ORIGINS=https://${APP_HOST}
     depends_on:
       eureka-server:
         condition: service_healthy
@@ -801,14 +809,15 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REGISTER_SMS_REQUIRED: "true"
       EMAIL_FROM: no-reply@${DOMAIN}
-      PWD_RESET_FRONTEND: https://${DOMAIN}/reset-password
+      PWD_RESET_FRONTEND: https://${APP_HOST}/reset-password
       # ⚠ 帶 /api：正式站的公開入口是 Caddy → 前端 nginx，
       #   nginx 會把 /api/login/** 剝掉前綴再送進 gateway 的 /login/**。
       #   所以 OAuth 供應商那邊要登記的 callback 是
-      #     https://<網域>/api/login/oauth2/code/{github|google|azure}
-      OAUTH_REDIRECT_BASE: https://${DOMAIN}/api
-      OAUTH_FRONTEND_CALLBACK: https://${DOMAIN}/login/callback
-      OAUTH_FRONTEND_LOGIN: https://${DOMAIN}/login
+      #     https://<APP_HOST>/api/login/oauth2/code/{github|google|azure}
+      #   改 APP_HOST 時，這三個外部後台也要一起改，否則 redirect_uri_mismatch。
+      OAUTH_REDIRECT_BASE: https://${APP_HOST}/api
+      OAUTH_FRONTEND_CALLBACK: https://${APP_HOST}/login/callback
+      OAUTH_FRONTEND_LOGIN: https://${APP_HOST}/login
       # OAuth
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}

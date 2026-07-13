@@ -208,7 +208,10 @@ jobs:
 
             echo "──────── 6. 冒煙測試 ────────"
             # 主站活著？（Caddy → nginx → SPA）
-            curl -fsS -o /dev/null -w "主站: HTTP %{http_code}\n" https://tommy-huang.dev/
+            # 網址從 .env.prod 讀，不要寫死——換網域時才不會漏掉這裡。
+            APP_HOST=$(grep -E '^APP_HOST=' .env.prod | cut -d= -f2- | tr -d '"'"'"'')
+            : "${APP_HOST:=tommy-huang.dev}"
+            curl -fsS -o /dev/null -w "主站 (${APP_HOST}): HTTP %{http_code}\n" "https://${APP_HOST}/"
 
             # ⚠ 不要 `source .env.prod`！
             #

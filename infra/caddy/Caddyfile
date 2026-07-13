@@ -6,7 +6,11 @@
 #  不發布任何 host port——把它們裸開到公網會在數小時內被自動化掃描攻陷。
 #
 #  變數由 .env.prod 提供（docker compose 會注入）：
-#    DOMAIN                主網域，例如 tommy-huang.dev
+#    DOMAIN                根網域，例如 tommy-huang.dev（子網域都掛在它下面）
+#    APP_HOST              主站網址，例如 twin.tommy-huang.dev
+#                          ⚠ 「主站網址」和「根網域」是兩件事，不要混用。
+#                             APP_HOST 一改，CORS / WebSocket origins / OAuth callback
+#                             / 密碼重設連結全部都要跟著改——compose 裡都是從它推導的。
 #    ACME_EMAIL            Let's Encrypt 通知信箱
 #    ADMIN_USER            管理介面的 basic auth 帳號
 #    ADMIN_PASSWORD_HASH   bcrypt hash（用 `docker run --rm caddy caddy hash-password` 產生）
@@ -22,7 +26,7 @@
 # ── 主站：使用者介面 ─────────────────────────────────────────
 # 前端容器的 nginx 內部已經代理 /api → api-gateway、/ws → furnace-service，
 # 所以這裡整站轉給它即可（WebSocket 的 Upgrade 由 reverse_proxy 自動處理）。
-{$DOMAIN}, www.{$DOMAIN} {
+{$APP_HOST} {
 	encode zstd gzip
 
 	# 基本安全標頭
@@ -35,6 +39,13 @@
 	}
 
 	reverse_proxy frontend:80
+}
+
+# ── 根網域 / www → 301 轉到主站 ──────────────────────────────
+# 這樣舊連結、名片上印的網址、履歷裡寫的網址都不會壞。
+# 之後若要在根網域放個人首頁，把這段換成對應的 reverse_proxy 即可。
+{$DOMAIN}, www.{$DOMAIN} {
+	redir https://{$APP_HOST}{uri} permanent
 }
 
 # ── 管理介面：全部走 HTTPS，且一律加上 basic auth ────────────
