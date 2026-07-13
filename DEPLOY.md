@@ -1,4 +1,4 @@
-# 部署到 Hetzner（CX43 / 16GB / tommy-huang.dev）
+# 部署到 Hetzner（CX43 / 16GB / twin.tommy-huang.dev）
 
 從零到跑起來，大約 40 分鐘（多數時間在等 Docker build 和憑證簽發）。
 
@@ -98,13 +98,37 @@ frontend    api-gateway                  Grafana / Kibana
 
 | 名稱 | 類型 | 值 |
 |---|---|---|
-| `@` | A | `<伺服器 IP>` |
-| `www` | A | `<伺服器 IP>` |
+| **`twin`** | A | `<伺服器 IP>` | ← **主站** |
+| `@` | A | `<伺服器 IP>` | 301 轉到 `twin` |
+| `www` | A | `<伺服器 IP>` | 301 轉到 `twin` |
 | `grafana` | A | `<伺服器 IP>` |
 | `kibana` | A | `<伺服器 IP>` |
 | `kafka` | A | `<伺服器 IP>` |
 | `flink` | A | `<伺服器 IP>` |
 | `prometheus` | A | `<伺服器 IP>` |
+
+> **Cloudflare 一律用 DNS only（灰雲）。** 開了 proxy（橘雲）Let's Encrypt 的
+> HTTP-01 / TLS-ALPN 挑戰會失敗，憑證簽不出來。
+
+### 「主站網址」和「根網域」是兩件事
+
+| 變數 | 值 | 用途 |
+|---|---|---|
+| `DOMAIN` | `tommy-huang.dev` | 根網域。子網域（grafana / kafka / flink / prometheus）掛在它下面 |
+| `APP_HOST` | `twin.tommy-huang.dev` | **主站**。使用者實際打開的那個 |
+
+compose 裡的 **CORS 白名單、WebSocket allowed origins、OAuth callback、
+密碼重設連結** 全部從 `APP_HOST` 推導——換網址只要改 `.env.prod` 一行。
+
+⚠ **但三家 OAuth App 後台的 callback URL 要另外手動改**，那在外部系統：
+
+```
+https://<APP_HOST>/api/login/oauth2/code/github
+https://<APP_HOST>/api/login/oauth2/code/google
+https://<APP_HOST>/api/login/oauth2/code/azure
+```
+
+忘了改的症狀是 `redirect_uri_mismatch`（錯誤頁會印出它收到的 URI，好認）。
 
 **先設 DNS 再啟動 Caddy**。Let's Encrypt 要能解析到這台機器才簽得出憑證，
 而且失敗次數有速率限制（同網域每週 5 次），撞到就要等一週。
@@ -112,7 +136,7 @@ frontend    api-gateway                  Grafana / Kibana
 驗證（每個都要回傳你的伺服器 IP）：
 
 ```bash
-for h in @ www grafana kibana kafka flink prometheus; do
+for h in @ www twin grafana kibana kafka flink prometheus; do
   echo -n "$h → "; dig +short ${h/@/}${h:+.}tommy-huang.dev | tail -1
 done
 ```
@@ -299,7 +323,8 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml \
 
 | 網址 | 內容 | 認證 |
 |---|---|---|
-| https://tommy-huang.dev | 主系統 | 應用自己的登入 |
+| **https://twin.tommy-huang.dev** | **主系統** | 應用自己的登入 |
+| https://tommy-huang.dev | → 301 轉到 `twin.` | — |
 | https://grafana.tommy-huang.dev | Grafana | Grafana 登入（`ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD`） |
 | https://kafka.tommy-huang.dev | Kafka UI | basic auth |
 | https://flink.tommy-huang.dev | Flink UI | basic auth |
