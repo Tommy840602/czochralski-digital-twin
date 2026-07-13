@@ -130,7 +130,8 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 30m        # mvn + docker build 要好幾分鐘，預設 10m 不夠
-          script_stop: true           # 任何一行失敗就中止，不要繼續往下跑
+          # ⚠ 不要加 script_stop —— appleboy/ssh-action@v1 沒有這個參數。
+          #   中止行為由 script 開頭的 `set -euo pipefail` 負責。
           script: |
             set -euo pipefail
             cd ~/czochralski-digital-twin
@@ -167,31 +168,80 @@ jobs:
               fi
             done
 
-            echo "──────── 5. Flink job ────────"
-            # Flink 關了 checkpoint、submitter 是一次性容器，
-            # jobmanager 一重建 job 就消失。每次部署都要確認並重推。
+            echo "──────── 5. Flink job（先全部取消，再推「一個」）────────"
+            #
+            # ⚠ 不能只在「0 個 RUNNING 時才推」。
+            #
+            #   `up -d --build` 會重跑 flink-job-submitter，而舊的 job 還活著
+            #   （jobmanager 沒被重建的話），結果每部署一次就多一個 job。
+            #   每個 job 都是完整的 FurnaceStreamJob，會「各自寫一份」到
+            #   TimescaleDB / MongoDB / Redis —— 資料變成 N 倍，SPC 的 σ 全錯。
+            #   這個坑在手動部署時已經踩過一次（一度同時跑了 3 個 job）。
+            #
+            #   反正 Flink JAR 每次部署都重編，本來就該用新 JAR 重推。
+            #   所以：無條件取消全部 → 推一個 → 驗證只有一個。
+            #
             sleep 10
-            RUNNING=$(docker exec twin-flink-jobmanager \
-                        curl -s localhost:8081/jobs | grep -o '"RUNNING"' | wc -l)
-            if [ "$RUNNING" -eq 0 ]; then
-              echo "沒有 RUNNING 的 job，重推…"
-              $COMPOSE up -d --force-recreate --no-deps flink-job-submitter
-              sleep 30
+            FLINK="docker exec twin-flink-jobmanager curl -s"
+
+            for JID in $($FLINK localhost:8081/jobs \
+                          | grep -oE '"id":"[a-f0-9]{32}","status":"(RUNNING|RESTARTING|CREATED)"' \
+                          | grep -oE '[a-f0-9]{32}'); do
+              echo "  取消舊 job: $JID"
+              $FLINK -X PATCH "localhost:8081/jobs/${JID}?mode=cancel" > /dev/null
+            done
+            sleep 8
+
+            echo "  推送新 job…"
+            $COMPOSE up -d --force-recreate --no-deps flink-job-submitter
+            sleep 30
+
+            ACTIVE=$($FLINK localhost:8081/jobs | grep -oc '"status":"RUNNING"' || true)
+            echo "  RUNNING job 數：$ACTIVE"
+            $FLINK localhost:8081/jobs; echo
+            if [ "$ACTIVE" -ne 1 ]; then
+              echo "::error::應該剛好 1 個 RUNNING job，實際 $ACTIVE 個"
+              echo "  0 個 → job 掛了，看 docker logs twin-flink-taskmanager"
+              echo "  >1 個 → 重複 job，會造成資料重複寫入，必須手動取消多餘的"
+              exit 1
             fi
-            docker exec twin-flink-jobmanager curl -s localhost:8081/jobs
-            echo
 
             echo "──────── 6. 冒煙測試 ────────"
             # 主站活著？（Caddy → nginx → SPA）
             curl -fsS -o /dev/null -w "主站: HTTP %{http_code}\n" https://tommy-huang.dev/
 
-            # 資料真的在流？（比對最新一筆的時間，不能超過 2 分鐘）
-            source .env.prod
-            LAG=$(docker exec -i twin-timescaledb psql -U "$POSTGRES_USER" -d furnace_db -tAc \
+            # ⚠ 不要 `source .env.prod`！
+            #
+            #   ADMIN_PASSWORD_HASH 是 bcrypt，長這樣：$2a$14$xxxx...
+            #   bash 會把 `$2` 當成位置參數展開 —— 在 `set -u` 之下直接
+            #   「$2: unbound variable」中止，沒有 set -u 的話則是靜靜地把
+            #   hash 弄成一坨爛字串。
+            #
+            #   Docker Compose 讀 .env 是「字面讀取、不做 shell 展開」，所以
+            #   compose 一直都是好的；只有 shell 的 source 會出事。
+            #   要什麼變數就單獨撈什麼，不要整份 source。
+            PG_USER=$(grep -E '^POSTGRES_USER=' .env.prod | cut -d= -f2- | tr -d '"'"'"'')
+            : "${PG_USER:=twin}"
+
+            # 資料真的在流？（最新一筆不能超過 2 分鐘）
+            LAG=$(docker exec -i twin-timescaledb psql -U "$PG_USER" -d furnace_db -tAc \
               "SELECT COALESCE(EXTRACT(EPOCH FROM (NOW() - MAX(time)))::int, 99999) FROM furnace_metrics;")
             echo "最新資料距今 ${LAG} 秒"
             if [ "$LAG" -gt 120 ]; then
               echo "::error::資料停了（${LAG} 秒沒有新資料）—— 檢查 Flink job 與 simulator"
+              exit 1
+            fi
+
+            # 沒有重複寫入？（同一時間點同一台爐子只能有一筆）
+            DUP=$(docker exec -i twin-timescaledb psql -U "$PG_USER" -d furnace_db -tAc \
+              "SELECT count(*) FROM (
+                 SELECT furnace_id, time FROM furnace_metrics
+                 WHERE time > NOW() - INTERVAL '5 minutes'
+                 GROUP BY furnace_id, time HAVING count(*) > 1
+               ) d;")
+            echo "近 5 分鐘重複的時間點：$DUP"
+            if [ "$DUP" -gt 0 ]; then
+              echo "::error::偵測到重複寫入 —— 很可能有多個 Flink job 同時在跑"
               exit 1
             fi
 
