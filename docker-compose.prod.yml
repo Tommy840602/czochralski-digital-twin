@@ -276,7 +276,9 @@ services:
   flink-jobmanager:
     image: flink:2.2.1-java17
     container_name: twin-flink-jobmanager
-    mem_limit: 1g
+    # 1g → 1536m：容納加大後的 Metaspace（見下方 FLINK_PROPERTIES 說明）。
+    # 我們有 ~9GB 閒置記憶體，這點開銷完全付得起。
+    mem_limit: 1536m
     <<: [*restart-policy, *default-logging]
     command: jobmanager
     # ports: 不對外發布（只有 caddy 綁 80/443）
@@ -307,7 +309,8 @@ services:
       - |
         FLINK_PROPERTIES=
         jobmanager.rpc.address: flink-jobmanager
-        jobmanager.memory.process.size: 900m
+        jobmanager.memory.process.size: 1400m
+        jobmanager.memory.jvm-metaspace.size: 512m
         taskmanager.memory.process.size: 1792m
         taskmanager.numberOfTaskSlots: 2
         parallelism.default: 1
@@ -324,12 +327,20 @@ services:
       - flink-checkpoint:/opt/flink/checkpoints
     networks:
       - twin-net
+    # ⚠ healthcheck 改打 /jobs（原本是 /overview）。
+    #
+    #   關鍵差別：Metaspace OOM 時，/overview 還能回 200（JVM 沒完全死），
+    #   但 /jobs 會回 500。用 /overview 的話 Docker 以為它 healthy、不重啟，
+    #   於是 JobManager 卡在「活著但功能壞掉」的狀態——這正是這次 12 天後
+    #   面板變空、卻沒有任何自動修復的原因。
+    #   改打 /jobs → OOM 時 healthcheck 失敗 → restart:always 自動重建 →
+    #   Metaspace 清空。（job 會消失，但 CI 部署或手動 up submitter 會重推。）
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/overview"]
-      interval: 15s
+      test: ["CMD", "curl", "-f", "http://localhost:8081/jobs"]
+      interval: 30s
       timeout: 10s
-      retries: 10
-      start_period: 30s
+      retries: 5
+      start_period: 40s
 
   # ─────────────────────────────────────────
   # 8. FLINK TASK MANAGER

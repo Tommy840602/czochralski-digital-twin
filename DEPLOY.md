@@ -507,8 +507,23 @@ stream.sinkTo(new RedisSink(RHOST, RPORT, RPASS));      // 在 main() 裡建構
 
 4. **Kafka / MQTT 沒有認證**。同上——只在內部網路，不對外。
 
-5. **Flink job 不會自動恢復**。checkpoint 是關的，jobmanager 重啟後要手動重推（見第 6 節）。
-   要修的話得開 checkpointing 並設定 HA。
+5. **Flink job 不會自動恢復**。checkpoint 是關的（job code 裡 `disableCheckpointing()`
+   蓋掉了 FLINK_PROPERTIES 的設定），jobmanager 重啟後要手動重推（見第 6 節）。
+   要徹底修得開 checkpointing 並設定 HA。
+
+   **⚠ JobManager Metaspace OOM（實戰：上線 12 天後面板變空）**
+   每次 job 提交都會在 JobManager 的 Metaspace 留一個 classloader 不釋放
+   （Flink 已知行為）。多次部署 + 重推累積後 Metaspace 爆掉，JobManager
+   卡在「進程活著、`/jobs` 回 500」的殭屍狀態，資料流靜靜地斷掉。
+   已做的緩解：
+   - `jvm-metaspace.size` 256m → **512m**（`mem_limit` 也跟著 1g → 1536m），大幅拉長爆掉的時間
+   - healthcheck 從 `/overview` 改打 **`/jobs`**——OOM 時 `/overview` 還會回 200
+     但 `/jobs` 會 500，改打 `/jobs` 才能讓 `restart:always` 自動重建 JobManager
+   - job 的 restart strategy 從「21 億次固定重試」改成**有上限的指數退避**，
+     持續性錯誤會放棄並進 FAILED，被 healthcheck / CI 冒煙測試抓到，而不是無聲空轉
+   - 復原 SOP：`up -d --force-recreate flink-jobmanager flink-taskmanager`
+     → 等 `/jobs` 回 `{"jobs":[]}` → `up -d --force-recreate --no-deps flink-job-submitter`
+     → 確認**剛好一個** RUNNING（重啟過程有時會多推一個，多的要 cancel）
 
 6. **Flink 平行度降到 1**（原本 2），task slot 降到 2（原本 4）。
    `FurnaceStreamJob` 本來就 `env.setParallelism(1)`，submitter 也是傳 `parallelism:1`，

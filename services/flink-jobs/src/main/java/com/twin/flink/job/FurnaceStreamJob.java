@@ -65,13 +65,29 @@ public class FurnaceStreamJob {
     static final String RPASS = System.getenv().getOrDefault("REDIS_PASSWORD", "");
 
     public static void main(String[] args) throws Exception {
-        // 容錯：task 失敗時自動重試（最多重試很多次，每次間隔10秒），
-        // 避免單一異常資料（如未知 furnace_id）造成整個 job 直接死掉
+        // 容錯：task 失敗時自動重試，但「有上限」。
+        //
+        // ⚠ 原本設 2147483647（21 億）次固定重試，是個坑：
+        //   如果 job 撞到「持續性」錯誤（例如 DB 掛了、schema 變更），
+        //   它會每 10 秒重啟一次、永遠不停，瘋狂 churn。而且每次真正的
+        //   job re-submission 都會在 JobManager 的 Metaspace 留下一個 classloader
+        //   不釋放（Flink 已知行為），長期累積 → Metaspace OOM
+        //   → JobManager 卡在「活著但功能壞掉」→ 整個資料流靜靜地斷掉。
+        //   （這正是上線 12 天後面板變空的根因。）
+        //
+        // 改用指數退避、有次數上限：暫時性錯誤（偶發的髒資料、短暫斷線）
+        // 能自癒；持續性錯誤則會在合理次數後放棄，讓 job 進 FAILED 狀態，
+        // 被 Docker healthcheck（改打 /jobs）與 CI 冒煙測試抓到，而不是無聲空轉。
         org.apache.flink.configuration.Configuration conf = new org.apache.flink.configuration.Configuration();
-        conf.set(org.apache.flink.configuration.RestartStrategyOptions.RESTART_STRATEGY, "fixed-delay");
-        conf.set(org.apache.flink.configuration.RestartStrategyOptions.RESTART_STRATEGY_FIXED_DELAY_ATTEMPTS, 2147483647);
-        conf.set(org.apache.flink.configuration.RestartStrategyOptions.RESTART_STRATEGY_FIXED_DELAY_DELAY,
-                java.time.Duration.ofSeconds(10));
+        conf.set(org.apache.flink.configuration.RestartStrategyOptions.RESTART_STRATEGY, "exponential-delay");
+        conf.set(org.apache.flink.configuration.RestartStrategyOptions.RESTART_STRATEGY_EXPONENTIAL_DELAY_INITIAL_BACKOFF,
+                java.time.Duration.ofSeconds(5));
+        conf.set(org.apache.flink.configuration.RestartStrategyOptions.RESTART_STRATEGY_EXPONENTIAL_DELAY_MAX_BACKOFF,
+                java.time.Duration.ofMinutes(2));
+        conf.set(org.apache.flink.configuration.RestartStrategyOptions.RESTART_STRATEGY_EXPONENTIAL_DELAY_BACKOFF_MULTIPLIER, 2.0);
+        // 連續失敗（沒有中間的成功）達此上限就放棄。穩定運行一段時間後計數會重置，
+        // 所以偶發的髒資料不會慢慢耗盡這個額度。
+        conf.set(org.apache.flink.configuration.RestartStrategyOptions.RESTART_STRATEGY_EXPONENTIAL_DELAY_ATTEMPTS_BEFORE_RESET_BACKOFF, 8);
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(conf);
         env.setParallelism(1);
         // 關閉 checkpoint，使用記憶體 state backend
