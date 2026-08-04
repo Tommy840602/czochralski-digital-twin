@@ -153,10 +153,17 @@ jobs:
 
             echo "──────── 4. 等服務 healthy ────────"
             for i in $(seq 1 40); do
-              UNHEALTHY=$(docker ps --filter health=unhealthy --format '{{.Names}}' | tr '\n' ' ')
-              STARTING=$(docker ps --filter health=starting --format '{{.Names}}' | tr '\n' ' ')
+              # 共享 VM 同時承載 PLC / DCS / SPC。只檢查這份 Compose 的 Twin
+              # 容器，否則其他專案的 unhealthy container 會讓 Twin 部署誤判失敗。
+              PROJECT_IDS=$($COMPOSE ps -q)
+              : "${PROJECT_IDS:?找不到 Twin Compose containers}"
+              HEALTH_ROWS=$(docker inspect \
+                --format '{{.Name}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
+                $PROJECT_IDS)
+              UNHEALTHY=$(printf '%s\n' "$HEALTH_ROWS" | awk '$2 == "unhealthy" { print $1 }' | tr '\n' ' ')
+              STARTING=$(printf '%s\n' "$HEALTH_ROWS" | awk '$2 == "starting" { print $1 }' | tr '\n' ' ')
               if [ -z "$UNHEALTHY" ] && [ -z "$STARTING" ]; then
-                echo "✓ 全部 healthy"
+                echo "✓ Twin Compose containers 全部 healthy（或未設定 healthcheck）"
                 break
               fi
               echo "  等待中… unhealthy=[$UNHEALTHY] starting=[$STARTING]"
