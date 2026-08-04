@@ -85,9 +85,12 @@ public class FurnaceStreamJob {
         conf.set(org.apache.flink.configuration.RestartStrategyOptions.RESTART_STRATEGY_EXPONENTIAL_DELAY_MAX_BACKOFF,
                 java.time.Duration.ofMinutes(2));
         conf.set(org.apache.flink.configuration.RestartStrategyOptions.RESTART_STRATEGY_EXPONENTIAL_DELAY_BACKOFF_MULTIPLIER, 2.0);
-        // 連續失敗（沒有中間的成功）達此上限就放棄。穩定運行一段時間後計數會重置，
-        // 所以偶發的髒資料不會慢慢耗盡這個額度。
-        conf.set(org.apache.flink.configuration.RestartStrategyOptions.RESTART_STRATEGY_EXPONENTIAL_DELAY_ATTEMPTS_BEFORE_RESET_BACKOFF, 8);
+        // 連續失敗（沒有中間的成功）達此上限就放棄。
+        // 注意：變數名是 ..._ATTEMPTS，但它對應的 config key 是
+        // "exponential-delay.attempts-before-reset-backoff"——job 穩定運行、
+        // backoff 被重置後這個計數也會歸零，所以偶發的髒資料不會慢慢耗盡額度，
+        // 只有「持續失敗」才會觸頂放棄。
+        conf.set(org.apache.flink.configuration.RestartStrategyOptions.RESTART_STRATEGY_EXPONENTIAL_DELAY_ATTEMPTS, 8);
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(conf);
         env.setParallelism(1);
         // 關閉 checkpoint，使用記憶體 state backend
