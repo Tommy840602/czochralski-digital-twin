@@ -492,6 +492,36 @@ stream.sinkTo(new RedisSink(RHOST, RPORT, RPASS));      // 在 main() 裡建構
 
 ---
 
+## 磁碟：會慢慢塞滿，要主動清
+
+每次 CI 部署都 `--build`，Docker 的 image 與 build cache 持續累積。
+**上線約 3 週後 160GB 磁碟塞滿**，Kafka 和 MongoDB（一直在寫檔的）
+首當其衝被拖垮，`furnace_metrics` 停止寫入、前端面板變空——而且症狀誤導：
+Flink job 顯示 RUNNING、Postgres 也 healthy，看不出是磁碟問題，
+要 `df -h /` 才會看到 `No space left on device`。
+
+三道防線（都已進 repo）：
+
+1. **CI 部署時 `docker system prune -af` + `builder prune -af`**——
+   每次部署順手清掉 build cache（`image prune -f` 不夠，它不碰 build cache）。
+2. **`scripts/disk-guard.sh` 每日排程**——清理 + 超過 80% 發 Slack 告警。
+   安裝（伺服器上跑一次）：
+   ```bash
+   ( crontab -l 2>/dev/null; \
+     echo "17 4 * * * cd $HOME/czochralski-digital-twin && ./scripts/disk-guard.sh >> /tmp/disk-guard.log 2>&1" \
+   ) | crontab -
+   ```
+3. **CI 冒煙測試會在清理後印出使用率**，超過 85% 發 `::warning::`。
+
+手動救援（磁碟已滿時）：
+```bash
+docker system prune -af && docker builder prune -af
+df -h /
+# 然後照第 6 節重推 Flink job；Kafka/Mongo 若被拖垮，docker compose up -d 拉回來
+```
+
+---
+
 ## 已知的取捨（誠實說明）
 
 1. **記憶體很寬裕**。實測 4.6 GB / 16 GB，available 9.6 GB。

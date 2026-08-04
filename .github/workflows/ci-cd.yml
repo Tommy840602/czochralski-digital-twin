@@ -256,7 +256,20 @@ jobs:
             fi
 
             echo "──────── 7. 清理 ────────"
-            docker image prune -f
+            # ⚠ image prune -f 不夠：它只清懸空 image，不碰 build cache。
+            #   而每次 --build 產生的 build cache 才是磁碟爆掉的主因
+            #   （上線 3 週後 160GB 塞滿，Kafka/Mongo 被連帶拖垮、資料流斷掉）。
+            #   -af 連「沒有容器在用的 image」和 build cache 一起清；
+            #   正在跑的服務用到的 image 不會被動到。
+            docker system prune -af
+            docker builder prune -af
+            DISK=$(df / | awk 'NR==2{print $5}' | tr -d '%')
+            echo "  清理後磁碟使用率：${DISK}%"
+            # 清完還這麼滿，代表不是垃圾堆積、而是真的資料長太大 → 該擴磁碟了。
+            # 當成警告不當成失敗（部署已經成功了），但讓它顯眼。
+            if [ "$DISK" -gt 85 ]; then
+              echo "::warning::磁碟清理後仍達 ${DISK}%，接近上限——考慮擴大磁碟或檢查是誰在狂寫"
+            fi
 
             echo "✅ 部署完成"
 
