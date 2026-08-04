@@ -17,7 +17,7 @@
       <!-- ── 頂部導覽列 ─────────────────────────────────────── -->
       <header class="topnav">
         <div class="topnav-left">
-          <div class="logo-mark">DEMO</div>
+          <img class="logo-mark" src="/icons/digital-twin.png" alt="CZ Digital Twin" />
           <div class="brand">
             <span class="brand-title mono">CZ Digital Twin Sys</span>
             <span class="brand-sub">CZ數位孿生系統</span>
@@ -181,12 +181,12 @@ watch(isAuthPage, maybeBoot)
 .topnav-left { display: flex; align-items: center; gap: 12px; }
 
 .logo-mark {
-  width: 32px; height: 32px;
+  /* 這張是橫向插畫（寬 > 高），用 auto 寬 + object-fit 保持比例，不要壓成正方形 */
+  height: 34px;
+  width: auto;
+  max-width: 56px;
+  object-fit: contain;
   border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, var(--teal) 0%, #0ea5e9 100%);
-  display: flex; align-items: center; justify-content: center;
-  font-family: var(--font-mono); font-size: 12px; font-weight: 700;
-  color: var(--bg-0); letter-spacing: 0.05em;
   flex-shrink: 0;
 }
 
