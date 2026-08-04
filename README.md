@@ -165,6 +165,11 @@ czochralski-digital-twin/
 └── DEPLOY.md                    # Hetzner 正式部署文件
 ```
 
+## 效能測試
+
+正式站的唯讀 k6 基線、breakpoint 結果與重現方式請參考
+[load-tests/README.md](load-tests/README.md)。高壓 profile 會在錯誤率或延遲超標時自動停止。
+
 ## 快速啟動
 
 ### 系統需求
