@@ -555,6 +555,17 @@ df -h /
      → 等 `/jobs` 回 `{"jobs":[]}` → `up -d --force-recreate --no-deps flink-job-submitter`
      → 確認**剛好一個** RUNNING（重啟過程有時會多推一個，多的要 cancel）
 
+   **⭐ 看門狗（自動復原，取代手動重推）**
+   `scripts/flink-watchdog.sh` 每 2 分鐘檢查一次，把上面的 SOP 全自動化：
+   剛好 1 個 RUNNING 就什麼都不做；0 個就重推；JobManager 殭屍就先重啟再推；
+   多個就取消到剩一個。每次出手都發 Slack 告警。安裝（伺服器上跑一次）：
+   ```bash
+   ( crontab -l 2>/dev/null; \
+     echo "*/2 * * * * cd $HOME/czochralski-digital-twin && ./scripts/flink-watchdog.sh >> /tmp/flink-watchdog.log 2>&1" \
+   ) | crontab -
+   ```
+   裝了它之後，job 因為任何原因消失（部署、OOM、重啟），最多 2 分鐘就會自己回來。
+
 6. **Flink 平行度降到 1**（原本 2），task slot 降到 2（原本 4）。
    `FurnaceStreamJob` 本來就 `env.setParallelism(1)`，submitter 也是傳 `parallelism:1`，
    所以**實際行為沒有改變**，只是不再為用不到的 slot 預留記憶體。
