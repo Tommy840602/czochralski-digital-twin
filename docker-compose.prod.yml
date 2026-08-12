@@ -886,6 +886,23 @@ services:
       - |
         echo "Waiting for Flink..."
         sleep 10
+
+        # ⚠ 上傳前「先刪掉所有舊 JAR」。
+        #
+        #   Flink 的 web-upload 目錄（/tmp/flink-web-*/flink-web-upload/）
+        #   會把每次 POST /jars/upload 的 JAR 永久留著，從不自動清理。
+        #   這個 submitter 每次都上傳一份 30MB 的 fat JAR，加上部署 + 重啟
+        #   + watchdog 每 2 分鐘重推，3 週累積約 3200 份 → 96GB 塞爆磁碟，
+        #   連 auth-service 都寫不了、整站掛掉。（實際踩過。）
+        #
+        #   所以上傳新的之前，先把清單裡的舊 JAR 全刪掉，只留當前這一份。
+        echo "清理舊 JAR..."
+        for OLD in $$(curl -s http://twin-flink-jobmanager:8081/jars \
+                        | grep -o '"id":"[^"]*"' | sed 's|"id":"||;s|"||g'); do
+          curl -s -X DELETE "http://twin-flink-jobmanager:8081/jars/$$OLD" >/dev/null
+          echo "  刪除 $$OLD"
+        done
+
         echo "Uploading jar..."
         RESPONSE=$$(curl -s -X POST http://twin-flink-jobmanager:8081/jars/upload \
           -H "Expect:" \
