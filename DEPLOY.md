@@ -539,6 +539,25 @@ docker ps -as --format 'table {{.Names}}\t{{.Size}}' | sort -k2 -rh | head
 - **根治（已進 compose）**：submitter 上傳前先 `GET /jars` 列出、`DELETE` 掉所有舊的，
   只留當前這份。
 
+### ⚠ Docker 狀態殘留：502、`No such container`、容器名有 hash 前綴
+
+磁碟爆掉、或 OOM 硬砍容器之後，containerd 的 metadata 可能留下殘骸，症狀有三種：
+
+- **主站 502**，但 Caddy 活著 → 後面某個容器（常是 frontend）沒起來
+- 啟動時報 **`No such container: <長 id>`** → compose 記著一個已不存在的容器參照
+- `docker ps` 看到 **`<hash>_twin-xxx`** 這種名字 → 同名容器衝突，Docker 自動加前綴
+
+這些「能跑但有未爆彈」——帶 hash 前綴的容器下次部署會再衝突。根治是整套重來：
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml down   # 不刪 volume，資料都在
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
+```
+
+全站中斷約 1 分鐘，完成後容器名全部乾淨。**⚠ 不要用 `--remove-orphans` 來修這個**
+——如果環境裡有專案名不一致的容器，它會把正常服務當孤兒刪掉（踩過）。
+`down` + `up` 才是安全的做法。之後 Flink job 記得重推。
+
 ### ⚠ 別在同一台機器混跑第二套系統
 
 這台 16GB 機器一度**同時跑著另一套 DCS 系統**（`dcs_*` 20+ 容器，佔記憶體），
