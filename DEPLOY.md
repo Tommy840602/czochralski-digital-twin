@@ -520,6 +520,37 @@ df -h /
 # 然後照第 6 節重推 Flink job；Kafka/Mongo 若被拖垮，docker compose up -d 拉回來
 ```
 
+### ⚠ 磁碟爆掉的真實案例：Flink web-upload 洩漏 96GB（上線 3 週）
+
+`docker system prune` 只清出幾十 MB、磁碟卻 100% 時，元凶多半不是垃圾堆積，
+而是**某個容器往自己的可寫層狂寫**。用這個一眼揪出：
+
+```bash
+docker ps -as --format 'table {{.Names}}\t{{.Size}}' | sort -k2 -rh | head
+```
+
+實際踩到的：`twin-flink-jobmanager` 可寫層 **101GB**。原因是
+**Flink 的 web-upload 目錄從不自動清理**——`flink-job-submitter` 每次
+`POST /jars/upload` 上傳 30MB fat JAR，Flink 存進 `/tmp/flink-web-*/flink-web-upload/`
+就永不刪。部署 + 重啟 + watchdog 重推累積約 3200 份 → 96GB。
+
+- **止血**：`up -d --force-recreate flink-jobmanager` —— 舊可寫層直接刪掉、瞬間釋放。
+  job 無狀態，重建不損失東西。
+- **根治（已進 compose）**：submitter 上傳前先 `GET /jars` 列出、`DELETE` 掉所有舊的，
+  只留當前這份。
+
+### ⚠ 別在同一台機器混跑第二套系統
+
+這台 16GB 機器一度**同時跑著另一套 DCS 系統**（`dcs_*` 20+ 容器，佔記憶體），
+導致 twin 長期記憶體吃緊、元件偶爾被 OOM 重啟——那正是「Flink job 反覆消失、
+最後磁碟爆掉」這條因果鏈的**源頭**。清掉後 twin 獨佔 16GB，才真正穩定。
+教訓：**demo 機器就跑一套系統**。要混跑，記憶體先加倍。
+
+檢查有沒有非本專案的容器：
+```bash
+docker ps --format '{{.Names}}' | grep -v '^twin-'
+```
+
 ---
 
 ## 已知的取捨（誠實說明）

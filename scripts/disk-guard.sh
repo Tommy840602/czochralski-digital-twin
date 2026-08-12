@@ -44,8 +44,9 @@ after=$(df -h / | awk 'NR==2{print $5}')
 echo "清理後：$after"
 
 # ── 3. 仍超標 → Slack ──
+# 注意：$after 來自 df -h，已經含 '%'（例如 "35%"），後面不要再加 %，否則變 %%。
 if [ "$after_pct" -gt "$THRESHOLD" ]; then
-    echo "⚠ 使用率 ${after}% 超過 ${THRESHOLD}%，發送 Slack 告警"
+    echo "⚠ 使用率 ${after} 超過 ${THRESHOLD}%，發送 Slack 告警"
 
     # 從 .env.prod 撈 webhook（單獨撈，不要 source —— 裡面的 bcrypt hash 有 $ 會爆）
     WEBHOOK=$(grep -E '^SLACK_WEBHOOK_URL=' .env.prod | cut -d= -f2- | tr -d '"'"'"'')
@@ -54,7 +55,7 @@ if [ "$after_pct" -gt "$THRESHOLD" ]; then
         # 佔用前幾大的目錄，方便判斷是誰吃掉的
         BIG=$(df -h / | awk 'NR==2{print "已用 "$3" / "$2" ("$5")"}')
         DOCKER_USE=$(docker system df --format '{{.Type}} {{.Size}}' 2>/dev/null | tr '\n' ' ')
-        TEXT="🚨 *磁碟告警* — twin.tommy-huang.dev\\n根分割區清理後仍達 ${after}%（門檻 ${THRESHOLD}%）\\n${BIG}\\nDocker: ${DOCKER_USE}\\n可能要考慮擴大磁碟，或檢查是誰在狂寫。"
+        TEXT="🚨 *磁碟告警* — twin.tommy-huang.dev\\n根分割區清理後仍達 ${after}（門檻 ${THRESHOLD}%）\\n${BIG}\\nDocker: ${DOCKER_USE}\\n可能要考慮擴大磁碟，或檢查是誰在狂寫。"
         curl -fsS -m 10 -X POST -H 'Content-Type: application/json' \
             -d "{\"text\":\"${TEXT}\"}" "$WEBHOOK" >/dev/null \
             && echo "  ✓ 已送出" || echo "  ✗ Slack 送出失敗"
@@ -62,7 +63,7 @@ if [ "$after_pct" -gt "$THRESHOLD" ]; then
         echo "  （SLACK_WEBHOOK_URL 沒設或格式不對，略過告警）"
     fi
 else
-    echo "✓ 使用率 ${after}% 在門檻內"
+    echo "✓ 使用率 ${after} 在門檻內"
 fi
 
 echo "════════ 完成 ════════"
