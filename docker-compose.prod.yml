@@ -272,6 +272,29 @@ services:
       - twin-net
 
   # ─────────────────────────────────────────
+  # 6.5 FLINK INIT — 修 volume 權限（一次性）
+  #
+  #   ⚠ 為什麼需要它：Docker 建立「全新」的 named volume 時，掛載點屬於 root，
+  #     但 Flink 容器內以 uid 9999（flink）執行，寫不進 root 擁有的 HA 目錄
+  #     → JobResultStore 建不起來 → JobManager fatal、無限重啟。
+  #     （上線開 HA 時踩過，整站當機。）
+  #
+  #   `user: root` 沒用——Flink entrypoint 會 gosu 降權回 flink，JVM 還是 9999。
+  #   所以用一個 root 的 init 容器，在 flink 啟動「前」把 volume chown 成 9999，
+  #   跑完就退出。跨 volume 重建、換機器都自動修，不用再手動 chown。
+  # ─────────────────────────────────────────
+  flink-init:
+    image: alpine:3
+    container_name: twin-flink-init
+    command: ["sh", "-c", "mkdir -p /ha /ckpt && chown -R 9999:9999 /ha /ckpt && echo 'flink volume 權限已修正'"]
+    volumes:
+      - flink-ha:/ha
+      - flink-checkpoint:/ckpt
+    networks:
+      - twin-net
+    restart: "no"
+
+  # ─────────────────────────────────────────
   # 7. FLINK JOB MANAGER
   # ─────────────────────────────────────────
   flink-jobmanager:
@@ -282,6 +305,10 @@ services:
     mem_limit: 1536m
     <<: [*restart-policy, *default-logging]
     command: jobmanager
+    # 先等 flink-init 把 volume 權限修好，JM 才起得來
+    depends_on:
+      flink-init:
+        condition: service_completed_successfully
     # ports: 不對外發布（只有 caddy 綁 80/443）
     environment:
       # ⚠ 這些「必須」也給 JobManager，不是只給 TaskManager。
