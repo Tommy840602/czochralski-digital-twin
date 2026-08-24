@@ -51,6 +51,22 @@ submit_job() {
     sleep 30
 }
 
+# 目前有幾個 RUNNING job（乾淨計數：grep -o 逐一匹配 | wc -l，永遠是單一數字）。
+# ⚠ 不要用 `grep -oc ... || echo 0`——找不到時 grep 印 0、|| 又補一個 0 → "0\n0"
+#   → 整數比較 [ "0\n0" -ge 1 ] 直接噴 "integer expression expected"（踩過）。
+count_running() {
+    docker exec "$JM" curl -s -m 8 localhost:8081/jobs 2>/dev/null \
+        | grep -o '"status":"RUNNING"' | wc -l | tr -d ' '
+}
+
+# 目前有幾個 TaskManager 註冊到 JobManager。
+# 這是最近一次故障的盲點：TM 掉線後不會自己重連，JobManager 看到 0 個 TM、
+# job 拿不到 slot → 無限 RESTARTING，watchdog 卻只會徒勞重推 job（不重啟 TM）。
+count_taskmanagers() {
+    docker exec "$JM" curl -s -m 8 localhost:8081/taskmanagers 2>/dev/null \
+        | grep -o '"id"' | wc -l | tr -d ' '
+}
+
 # ── 讀取目前 job 狀態 ──
 # 打得通 → RESP 是 JSON；打不通（殭屍 / 沒起來）→ 空字串
 RESP=$(docker exec "$JM" curl -s -m 8 localhost:8081/jobs 2>/dev/null || echo "")
@@ -63,9 +79,34 @@ if ! echo "$RESP" | grep -q '"jobs"'; then
     $COMPOSE up -d --force-recreate flink-jobmanager flink-taskmanager >/dev/null 2>&1
     sleep 45
     submit_job
-    NOW=$(docker exec "$JM" curl -s localhost:8081/jobs 2>/dev/null | grep -oc '"status":"RUNNING"' || echo 0)
+    NOW=$(count_running)
     log "重啟後 RUNNING job 數：$NOW"
     slack "🔧 *Flink watchdog* — JobManager 殭屍已重啟並重推 job（現有 ${NOW} 個 RUNNING）。twin.tommy-huang.dev"
+    exit 0
+fi
+
+# ── C2: TaskManager 沒註冊（最近一次崩 3 天的病灶）──
+# JM 活著、能回 /jobs，但沒有任何 TM 註冊 → job 永遠拿不到 slot、無限 RESTARTING。
+# 只重推 job 沒用（watchdog 舊版就是這樣徒勞了 3 天），必須把 TM 重啟、讓它重新註冊。
+TM_CNT=$(count_taskmanagers)
+if [ "${TM_CNT:-0}" -eq 0 ]; then
+    log "JobManager 上註冊的 TaskManager = 0 → TM 掉線，重啟 jobmanager+taskmanager 讓它重新註冊"
+    $COMPOSE up -d --force-recreate flink-jobmanager flink-taskmanager >/dev/null 2>&1
+    sleep 45
+    # 重啟後把殘留的 RESTARTING/CREATED job 清掉，再推一個乾淨的
+    for id in $(docker exec "$JM" curl -s localhost:8081/jobs 2>/dev/null \
+                  | grep -oE '"id":"[a-f0-9]{32}","status":"(RESTARTING|CREATED|FAILING)"' \
+                  | grep -oE '[a-f0-9]{32}'); do
+        cancel_job "$id"
+    done
+    submit_job
+    NOW=$(count_running); TM=$(count_taskmanagers)
+    log "重啟後：TM=$TM，RUNNING job=$NOW"
+    if [ "${NOW:-0}" -ge 1 ]; then
+        slack "🔧 *Flink watchdog* — TaskManager 曾掉線，已重啟並重推 job（TM=${TM}，RUNNING=${NOW}）。twin.tommy-huang.dev"
+    else
+        slack "🚨 *Flink watchdog* — TaskManager 掉線、重啟後 job 仍起不來（TM=${TM}），需人工介入！twin.tommy-huang.dev"
+    fi
     exit 0
 fi
 
@@ -94,9 +135,9 @@ for id in $(echo "$RESP" | grep -oE '"id":"[a-f0-9]{32}","status":"(RESTARTING|C
     cancel_job "$id"
 done
 submit_job
-NOW=$(docker exec "$JM" curl -s localhost:8081/jobs 2>/dev/null | grep -oc '"status":"RUNNING"' || echo 0)
+NOW=$(count_running)
 log "重推後 RUNNING job 數：$NOW"
-if [ "$NOW" -ge 1 ]; then
+if [ "${NOW:-0}" -ge 1 ]; then
     slack "🔧 *Flink watchdog* — 偵測到 job 消失，已自動重推（現有 ${NOW} 個 RUNNING）。twin.tommy-huang.dev"
 else
     slack "🚨 *Flink watchdog* — job 消失且「重推失敗」，需要人工介入！twin.tommy-huang.dev"
