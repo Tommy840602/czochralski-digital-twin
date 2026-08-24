@@ -605,7 +605,29 @@ docker ps --format '{{.Names}}' | grep -v '^twin-'
      → 等 `/jobs` 回 `{"jobs":[]}` → `up -d --force-recreate --no-deps flink-job-submitter`
      → 確認**剛好一個** RUNNING（重啟過程有時會多推一個，多的要 cancel）
 
-   **⭐ 看門狗（自動復原，取代手動重推）**
+   **⭐⭐ 根治：Checkpointing + ZooKeeper HA（2026-08 導入）**
+   移除了 job code 的 `disableCheckpointing()`，並在 JM/TM 開啟 ZooKeeper HA
+   （用既有的 twin-zookeeper）。有了它，**JM/TM 因任何原因重啟，job 會自動
+   從最後一個 checkpoint 恢復**——不需要人為重推。已驗證：`docker restart
+   twin-flink-taskmanager` 後 90 秒內 job 自動回 RUNNING、資料續流。
+
+   ⚠ **導入時踩的坑（整站當機一次）**：全新的 `flink-ha` named volume 掛載點
+   屬 root，但 Flink 以 uid 9999 執行、寫不進去 → `JobResultStore isn't
+   accessible` → JobManager 無限重啟。**這不是 ZooKeeper 問題**（ZK 連線正常）。
+   `user: root` 沒用（Flink entrypoint 會 gosu 降權回 flink）。解法是加一個
+   一次性的 `flink-init` 容器（root），在 flink 啟動前 `chown -R 9999:9999`
+   兩個 volume，JM `depends_on` 它 `service_completed_successfully`。
+   跨 volume 重建、換機器都自動修。
+
+   驗證 HA 是否真的生效（不要用 `docker kill`——SIGKILL 會卡住 restart policy，
+   是不公平的測試；用 `docker restart` 模擬崩潰+自動拉起）：
+   ```bash
+   docker restart twin-flink-taskmanager
+   sleep 90
+   docker exec twin-flink-jobmanager curl -s localhost:8081/jobs   # 應自動回 RUNNING
+   ```
+
+   **⭐ 看門狗（HA 的兜底，非主力）**
    `scripts/flink-watchdog.sh` 每 2 分鐘檢查一次，把上面的 SOP 全自動化：
    剛好 1 個 RUNNING 就什麼都不做；0 個就重推；JobManager 殭屍就先重啟再推；
    多個就取消到剩一個。每次出手都發 Slack 告警。安裝（伺服器上跑一次）：
