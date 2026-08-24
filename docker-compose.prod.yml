@@ -60,6 +60,7 @@ volumes:
   mosquitto-data:
   mosquitto-log:
   flink-checkpoint:
+  flink-ha:          # Flink HA metadata（job graph、checkpoint 指標）
   caddy-data:
   caddy-config:
 
@@ -318,13 +319,28 @@ services:
         state.checkpoints.dir: file:///opt/flink/checkpoints
         execution.checkpointing.interval: 30s
         execution.checkpointing.mode: EXACTLY_ONCE
+        execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION
         rest.flamegraph.enabled: true
         akka.ask.timeout: 60 s
         web.timeout: 60000
         heartbeat.timeout: 180000
         heartbeat.interval: 30000
+        # ── High Availability（用既有的 ZooKeeper）──────────────────
+        # 有了 HA + checkpointing，JM/TM 重啟後 job 會「自動」從最後一個
+        # checkpoint 恢復——不再需要 watchdog 追著重推。這是根治「job 一重啟
+        # 就消失」的正解。JM 把 job graph 存進 ZooKeeper + storageDir，
+        # 重啟時讀回來續跑。
+        # ⚠ JM 和 TM 的這段 HA 設定必須「完全一致」，否則 TM 註冊不上。
+        high-availability.type: zookeeper
+        high-availability.zookeeper.quorum: twin-zookeeper:2181
+        high-availability.zookeeper.path.root: /flink
+        high-availability.cluster-id: /twin-furnace
+        high-availability.storageDir: file:///opt/flink/ha
     volumes:
       - flink-checkpoint:/opt/flink/checkpoints
+      # HA metadata（job graph、checkpoint 指標）——必須跨重啟保存，
+      # 且 JM 和 TM 掛「同一個」volume，兩邊才讀得到同一份狀態。
+      - flink-ha:/opt/flink/ha
     networks:
       - twin-net
     # ⚠ healthcheck 改打 /jobs（原本是 /overview）。
@@ -375,8 +391,15 @@ services:
         web.timeout: 60000
         heartbeat.timeout: 180000
         heartbeat.interval: 30000
+        # ── HA：必須跟 JobManager「完全一致」，否則 TM 註冊不上叢集 ──
+        high-availability.type: zookeeper
+        high-availability.zookeeper.quorum: twin-zookeeper:2181
+        high-availability.zookeeper.path.root: /flink
+        high-availability.cluster-id: /twin-furnace
+        high-availability.storageDir: file:///opt/flink/ha
     volumes:
       - flink-checkpoint:/opt/flink/checkpoints
+      - flink-ha:/opt/flink/ha
     networks:
       - twin-net
 
@@ -886,6 +909,22 @@ services:
       - |
         echo "Waiting for Flink..."
         sleep 10
+
+        # ⚠ 開了 HA 之後，先「取消所有現有 job」再提交。
+        #
+        #   HA 會在 JM 重啟時自動把舊 job 復活。部署新版時，submitter 若直接
+        #   再提交一個，就會變成「舊 code 的 job + 新 code 的 job」兩個並存
+        #   → 重複寫入。所以提交前先把跑著的 job 全部 cancel 掉，確保乾淨。
+        #   （非部署時的單純 JM/TM 重啟，submitter 不會跑，HA 自己恢復 1 個，
+        #     不受這段影響。）
+        echo "取消現有 job（HA 可能已復活舊 job）..."
+        for J in $$(curl -s http://twin-flink-jobmanager:8081/jobs \
+                      | grep -oE '"id":"[a-f0-9]+","status":"(RUNNING|RESTARTING|CREATED)"' \
+                      | grep -oE '[a-f0-9]{32}'); do
+          curl -s -X PATCH "http://twin-flink-jobmanager:8081/jobs/$$J?mode=cancel" >/dev/null
+          echo "  取消 $$J"
+        done
+        sleep 3
 
         # ⚠ 上傳前「先刪掉所有舊 JAR」。
         #

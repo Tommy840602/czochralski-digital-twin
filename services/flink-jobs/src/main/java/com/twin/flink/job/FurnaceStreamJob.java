@@ -93,8 +93,18 @@ public class FurnaceStreamJob {
         conf.set(org.apache.flink.configuration.RestartStrategyOptions.RESTART_STRATEGY_EXPONENTIAL_DELAY_ATTEMPTS, 8);
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(conf);
         env.setParallelism(1);
-        // 關閉 checkpoint，使用記憶體 state backend
-        env.getCheckpointConfig().disableCheckpointing();
+        // ⚠ 移除了原本的 env.getCheckpointConfig().disableCheckpointing()。
+        //
+        //   那一行是「job 一重啟就永久消失」的病根——它蓋掉了 FLINK_PROPERTIES
+        //   裡的 checkpointing 設定，讓 job 完全沒有 state 快照，JM/TM 重啟後
+        //   無從恢復，只能靠外部 watchdog 重推（而且我們為此追了好幾天的火）。
+        //
+        //   拿掉之後，checkpointing 由 FLINK_PROPERTIES 生效（interval 30s、
+        //   RETAIN_ON_CANCELLATION），配合 ZooKeeper HA，JM/TM 重啟時 job 會
+        //   自動從最後一個 checkpoint 恢復，不需要人為介入。
+        //
+        //   注意：sink 不是交易型，恢復時最後一段資料可能重複寫入 → SPC σ 短暫
+        //   受影響。但恢復已變罕見，且 watchdog 的 dedup 會兜底，可接受。
 
         // ── Source：Kafka furnace-data topic ──────────────────────────────
         KafkaSource<FurnaceReading> source = KafkaSource.<FurnaceReading>builder()
